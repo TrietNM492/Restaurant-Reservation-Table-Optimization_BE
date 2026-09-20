@@ -1,0 +1,32 @@
+version: '3.9'
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: ij-restaurant-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: Philia093
+      MYSQL_DATABASE: ij_restaurant
+      MYSQL_USER: cas_user
+      MYSQL_PASSWORD: cake123
+
+    ports:
+      - "3307:3306"
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  redis:
+    image: redis:8
+    container_name: ij-restaurant_redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - redis_data:/data
+
+volumes:
+  mysql_data:
+  redis_data:

@@ -1,0 +1,35 @@
+# --- Java & Build Tools ---
+bin/
+target/
+.gradle/
+build/
+*.class
+*.jar
+*.war
+
+# --- IDEs & Editors ---
+.vscode/
+.idea/
+*.iml
+*.iws
+.settings/
+.classpath
+.project
+.factorypath
+.mvn
+.cmd
+mvnw.*
+HELP.md
+
+# --- Environment & Databases (Dữ liệu của bạn) ---
+.env
+.env.development
+.env.dev
+.env.local
+!.env.example
+mysql_data/
+postgres_data/
+
+# --- Operating System Files ---
+Thumbs.db
+.DS_Store
