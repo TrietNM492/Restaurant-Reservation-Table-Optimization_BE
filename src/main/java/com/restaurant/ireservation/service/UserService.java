@@ -1,12 +1,20 @@
 package com.restaurant.ireservation.service;
 
 import com.restaurant.ireservation.domain.entity.Permission;
+import com.restaurant.ireservation.domain.entity.Role;
 import com.restaurant.ireservation.domain.entity.User;
+import com.restaurant.ireservation.domain.enumerations.Gender;
+import com.restaurant.ireservation.dto.request.RegisterAccount;
 import com.restaurant.ireservation.dto.response.UserSecurityRes;
+import com.restaurant.ireservation.error.ResourceNotFoundException;
+import com.restaurant.ireservation.repository.RoleRepository;
 import com.restaurant.ireservation.repository.UserRepository;
+import com.restaurant.ireservation.security.AuthoritiesConstants;
+import com.restaurant.ireservation.security.SessionManager;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +28,9 @@ import java.util.stream.Collectors;
 public class UserService {
 
     final UserRepository userRepository;
+    final PasswordEncoder passwordEncoder;
+    final RoleRepository roleRepository;
+
 
     public Optional<UserSecurityRes> getUserSecurityByUsername(String username) {
         return userRepository.findOneWithAuthoritiesByUsername(username.toLowerCase())
@@ -38,6 +49,24 @@ public class UserService {
         permissions.add(user.getRole().getName());
         res.setPermission(permissions);
         return res;
+
+    }
+
+    public UserSecurityRes createUser(RegisterAccount registerAccount) {
+        String encryptedPassword = passwordEncoder.encode(registerAccount.getPassword());
+        Role role = roleRepository.findOneByName(AuthoritiesConstants.CUSTOMER)
+                .orElseThrow(() -> new ResourceNotFoundException("Role not found!"));
+        User newUser = User.builder()
+                .username(registerAccount.getUsername().toLowerCase())
+                .password(encryptedPassword)
+                .fullname(registerAccount.getFullname())
+                .email(registerAccount.getEmail())
+                .isActive(true)
+                .role(role)
+                .gender(Gender.DEFAULT)
+                .build();
+        User savedUser = userRepository.save(newUser);
+        return getUserSecurity(savedUser);
 
     }
 

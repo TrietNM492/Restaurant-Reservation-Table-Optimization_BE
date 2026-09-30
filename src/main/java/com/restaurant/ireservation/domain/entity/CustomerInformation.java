@@ -1,5 +1,6 @@
 package com.restaurant.ireservation.domain.entity;
 
+import com.restaurant.ireservation.domain.enumerations.RankCustomer;
 import com.restaurant.ireservation.util.constants.Constants;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Pattern;
@@ -39,7 +40,8 @@ public class CustomerInformation {
 
     Integer point = 0;
 
-    String customerRank;
+    @Enumerated(EnumType.STRING)
+    RankCustomer customerRank;
 
 
 }

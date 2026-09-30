@@ -26,8 +26,8 @@ public class OrderItem extends BaseEntity {
     Order order;
 
     @ManyToOne
-    @JoinColumn(name = "menu_category_id")
-    MenuCategory menuCategory;
+    @JoinColumn(name = "menu_item_id")
+    MenuItem menuItem;
 
     @Min(0)
     int quantity;
@@ -35,7 +35,5 @@ public class OrderItem extends BaseEntity {
     String unitPrice; // vnd, usd
 
     double subtotal;
-
-
 
 }

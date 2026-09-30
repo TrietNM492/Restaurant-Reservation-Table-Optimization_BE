@@ -18,8 +18,10 @@ public class UserSecurityRes {
     String username;
     String email;
     String gender;
+    String fullname;
     String role;
     Set<String> permission;
     String sessionId;
+    boolean isActive;
 
 }

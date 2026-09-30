@@ -2,6 +2,8 @@ package com.restaurant.ireservation.domain.entity;
 
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -30,9 +32,9 @@ public class RestaurantTable extends BaseEntity {
     @JoinColumn(name = "area_id")
     TableArea area;
 
+    @Enumerated(EnumType.STRING)
     TableStatus statusCode;
 
     String description;
-
 
 }

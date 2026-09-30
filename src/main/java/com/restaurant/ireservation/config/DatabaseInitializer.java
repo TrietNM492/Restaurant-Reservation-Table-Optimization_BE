@@ -10,10 +10,9 @@ import com.restaurant.ireservation.domain.enumerations.PermissionMethod;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.PermissionRepository;
 import com.restaurant.ireservation.repository.RoleRepository;
-import com.restaurant.ireservation.repository.StaffProfileRepository;
+import com.restaurant.ireservation.repository.StaffInformationRepository;
 import com.restaurant.ireservation.repository.UserRepository;
 import com.restaurant.ireservation.security.AuthoritiesConstants;
-import com.restaurant.ireservation.util.constants.Constants;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -24,7 +23,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Component
 @FieldDefaults(level = AccessLevel.PRIVATE)
@@ -33,7 +31,7 @@ import java.util.stream.Collectors;
 public class DatabaseInitializer implements CommandLineRunner {
 
     final UserRepository userRepository;
-    final StaffProfileRepository staffProfileRepository;
+    final StaffInformationRepository staffProfileRepository;
     final PermissionRepository permissionRepository;
     final RoleRepository roleRepository;
     final PasswordEncoder passwordEncoder;

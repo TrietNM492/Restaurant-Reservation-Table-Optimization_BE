@@ -1,11 +1,18 @@
 package com.restaurant.ireservation.security;
 
+import com.restaurant.ireservation.dto.response.ResLoginDTO;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Set;
 
 @Service
 public class JwtService {
@@ -21,6 +28,7 @@ public class JwtService {
     @Value("${ijres.jwt.refresh-token-validity-sec}")
     private Long refreshTokenExpiration;
     private final SecretKey jwtSecretKey;
+
     static {
         JWT_ALGO = MacAlgorithm.HS256;
     }
@@ -30,4 +38,37 @@ public class JwtService {
         this.jwtSecretKey = jwtSecretKey;
     }
 
+    public String createAccessToken(String username, ResLoginDTO dto, String sessionId, Set<String> permissions) {
+        ResLoginDTO.UserInsideToken userInsideToken = new ResLoginDTO.UserInsideToken();
+        userInsideToken.setId(dto.getUser().getId());
+        userInsideToken.setUsername(username);
+        userInsideToken.setName(dto.getUser().getName());
+        Instant now = Instant.now();
+        Instant validity = now.plus(this.accessTokenExpiration, ChronoUnit.SECONDS);
+        JwtClaimsSet claim = JwtClaimsSet.builder()
+                .issuedAt(now)
+                .expiresAt(validity)
+                .subject(username)
+                .claim("user", userInsideToken)
+                .claim("permission", permissions)
+                .claim("sessionId", sessionId).build();
+        JwsHeader jwsHeader = JwsHeader.with(JWT_ALGO).build();
+        return this.jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claim)).getTokenValue();
+    }
+
+    public String createRefreshToken(ResLoginDTO.UserLogin userLogin) {
+        var userToken = new ResLoginDTO.UserInsideToken();
+        userToken.setId(userToken.getId());
+        userToken.setUsername(userLogin.getUsername());
+        Instant now = Instant.now();
+        Instant validity = now.plus(refreshTokenExpiration, ChronoUnit.SECONDS);
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+                .issuedAt(now)
+                .expiresAt(validity)
+                .subject(userLogin.getUsername())
+                .claim("user", userToken)
+                .build();
+        JwsHeader jwsHeader = JwsHeader.with(JWT_ALGO).build();
+        return jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claims)).getTokenValue();
+    }
 }

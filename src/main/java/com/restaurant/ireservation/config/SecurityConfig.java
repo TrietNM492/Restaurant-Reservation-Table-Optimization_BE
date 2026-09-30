@@ -2,6 +2,7 @@ package com.restaurant.ireservation.config;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.nimbusds.jose.util.Base64;
+import com.restaurant.ireservation.security.GuestAwareJwtDecoder;
 import com.restaurant.ireservation.security.JwtService;
 import com.restaurant.ireservation.util.constants.Constants;
 import io.jsonwebtoken.security.Keys;
@@ -91,7 +92,7 @@ public class SecurityConfig {
                                         .anyRequest().permitAll())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwtConfigurer -> jwtConfigurer.jwtAuthenticationConverter(converter)
-
+                                .decoder(new GuestAwareJwtDecoder(decoder, request, publishEndpoints))
                         ))
                 .formLogin(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));

@@ -29,6 +29,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query(value = "select u from User u left join fetch u.role r left join fetch r.permissions p where u.username = :username")
     Optional<User> findOneWithAuthoritiesByUsername(@Param("username") String username);
+
+    boolean existsByEmail(String email);
+
+    boolean existsByUsername(String username);
     
 
 }

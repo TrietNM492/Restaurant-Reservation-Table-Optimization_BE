@@ -21,4 +21,26 @@ public class GlobalException {
         res.setError("Not Found");
         return ResponseEntity.status(statusCode).body(res);
     }
+
+    @ExceptionHandler(value = {UserNotActivatedException.class})
+    public ResponseEntity<RestResponse<?>> handleUserNotActivatedException(UserNotActivatedException e) {
+        int statusCode = HttpStatus.UNAUTHORIZED.value();
+        var res = new RestResponse<>();
+        res.setStatusCode(statusCode);
+        res.setTimestamp(LocalDateTime.now());
+        res.setError("User Inactive!");
+        res.setMessage(e.getMessage());
+        return ResponseEntity.status(statusCode).body(res);
+    }
+
+    @ExceptionHandler(value = {UserAlreadyUsedException.class})
+    public ResponseEntity<RestResponse<?>> handleUserAlreadyUsedException(UserAlreadyUsedException e) {
+        int statusCode = HttpStatus.CONFLICT.value();
+        var res = new RestResponse<>();
+        res.setStatusCode(statusCode);
+        res.setTimestamp(LocalDateTime.now());
+        res.setError("User Already exist!");
+        res.setMessage(e.getMessage());
+        return ResponseEntity.status(statusCode).body(res);
+    }
 }
