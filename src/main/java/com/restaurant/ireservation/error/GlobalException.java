@@ -43,4 +43,16 @@ public class GlobalException {
         res.setMessage(e.getMessage());
         return ResponseEntity.status(statusCode).body(res);
     }
+
+
+    @ExceptionHandler(value = {RequestInvalidException.class})
+    public ResponseEntity<RestResponse<?>> handleBadRequestException(RequestInvalidException e) {
+        int statusCode = HttpStatus.BAD_REQUEST.value();
+        var res = new RestResponse<>();
+        res.setStatusCode(statusCode);
+        res.setMessage(e.getMessage());
+        res.setError("Bad Request");
+        res.setTimestamp(LocalDateTime.now());
+        return ResponseEntity.status(statusCode).body(res);
+    }
 }

@@ -88,12 +88,12 @@ public class DatabaseInitializer implements CommandLineRunner {
             admin.setActive(true);
             admin.setGender(Gender.MALE);
             admin.setPhone("0912312312");
-            admin.setEmail("CasCake@gmail.com");
+            admin.setEmail("CasCake@gmail.com".toLowerCase());
             var roleAdmin = this.roleRepository.findOneByName(AuthoritiesConstants.ADMIN)
                     .orElseThrow(() -> new ResourceNotFoundException("Role not found!"));
             admin.setRole(roleAdmin);
             admin.setPassword(this.passwordEncoder.encode("123123"));
-            admin.setUsername("cascas");
+            admin.setUsername("cascas".toLowerCase());
             admin.setCreatedBy("SYSTEM");
             userRepository.save(admin);
             StaffInformation information = new StaffInformation();

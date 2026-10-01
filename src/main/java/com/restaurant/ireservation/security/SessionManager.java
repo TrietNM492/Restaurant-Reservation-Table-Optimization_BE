@@ -8,6 +8,7 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -18,6 +19,7 @@ public class SessionManager {
     final UserRepository userRepository;
     final UserService userService;
 
+    @Transactional
     public String createSession(Long id) {
         String newSession = UUID.randomUUID().toString();
         int updated = userRepository.updateSessionIdById(id, newSession);

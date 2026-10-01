@@ -45,6 +45,9 @@ public class UserService {
         res.setGender(user.getGender().toString());
         res.setSessionId(user.getSessionId());
         res.setRole(user.getRole().getName());
+        res.setActive(user.isActive());
+        res.setFullname(user.getFullname());
+        res.setPassword(user.getPassword());
         var permissions = user.getRole().getPermissions().stream().map(Permission::getName).collect(Collectors.toSet());
         permissions.add(user.getRole().getName());
         res.setPermission(permissions);

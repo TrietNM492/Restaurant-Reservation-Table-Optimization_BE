@@ -22,6 +22,7 @@ public class ResLoginDTO {
         String name;
         String role;
         String username;
+        String avatar;
     }
 
     @Getter

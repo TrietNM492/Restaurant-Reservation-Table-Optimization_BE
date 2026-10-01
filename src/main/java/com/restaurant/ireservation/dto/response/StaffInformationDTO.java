@@ -19,14 +19,15 @@ public class StaffInformationDTO {
     LocalDate resignationDate;
     long tenure;
     double salary;
-    UserRes user;
+    InformationStaff user;
 
     @Getter
     @Setter
-    public static class UserRes {
-        UserSecurityRes userSecurityRes;
+    public static class InformationStaff {
+        String email;
+        String gender;
+        String fullname;
         String phone;
-
-
+        boolean isActive;
     }
 }

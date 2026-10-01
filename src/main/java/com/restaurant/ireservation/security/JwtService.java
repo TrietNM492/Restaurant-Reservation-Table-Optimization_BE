@@ -1,6 +1,9 @@
 package com.restaurant.ireservation.security;
 
 import com.restaurant.ireservation.dto.response.ResLoginDTO;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.Jwts;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -70,5 +73,15 @@ public class JwtService {
                 .build();
         JwsHeader jwsHeader = JwsHeader.with(JWT_ALGO).build();
         return jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claims)).getTokenValue();
+    }
+
+    public Claims parseRefreshTokenIgnoreExpire(String token) {
+        try {
+            return Jwts.parser().verifyWith(jwtSecretKey).build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+        } catch (ExpiredJwtException e) {
+            return e.getClaims();
+        }
     }
 }

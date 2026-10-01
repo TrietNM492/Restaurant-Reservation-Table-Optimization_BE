@@ -2,6 +2,10 @@ package com.restaurant.ireservation.security;
 
 import com.restaurant.ireservation.domain.entity.User;
 import com.restaurant.ireservation.dto.response.UserSecurityRes;
+import com.restaurant.ireservation.error.ResourceNotFoundException;
+import com.restaurant.ireservation.repository.UserRepository;
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -10,6 +14,8 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 
+@Getter
+@Setter
 public class CustomUserDetails implements UserDetails {
     UserSecurityRes user;
 
@@ -31,7 +37,7 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public String getPassword() {
-        return "";
+        return user.getPassword();
     }
 
     @Override

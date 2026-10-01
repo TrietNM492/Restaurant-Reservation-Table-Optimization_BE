@@ -27,8 +27,6 @@ public class CustomerInformation {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     Long id;
 
-    String avatar;
-
     @Column(name = "date_of_birth")
     LocalDate dateOfBirth;
 

@@ -12,7 +12,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @FieldDefaults(level = AccessLevel.PRIVATE)
@@ -32,10 +31,11 @@ public class StaffInformationService {
             dto.setDepartment(staff.getDepartment());
             dto.setJoinDate(staff.getJoinDate());
             dto.setResignationDate(staff.getResignationDate());
-            var userRes = new StaffInformationDTO.UserRes();
+            var userRes = new StaffInformationDTO.InformationStaff();
             userRes.setPhone(staff.getUser().getPhone());
-            UserSecurityRes userSecurity = userService.getUserSecurity(staff.getUser());
-            userRes.setUserSecurityRes(userSecurity);
+            userRes.setGender(dto.getUser().getGender());
+            userRes.setFullname(dto.getUser().getFullname());
+            userRes.setEmail(dto.getUser().getEmail());
             dto.setUser(userRes);
             return dto;
         }).toList();

@@ -20,7 +20,6 @@ public class CustomerResponse {
     @AllArgsConstructor
     @Builder
     public static class CustomerProfile {
-        String avatar;
         LocalDate dateOfBirth;
         String indentityCard;
         String address;

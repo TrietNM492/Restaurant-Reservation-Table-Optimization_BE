@@ -1,7 +1,6 @@
 package com.restaurant.ireservation.repository;
 
 import com.restaurant.ireservation.domain.entity.StaffInformation;
-import com.restaurant.ireservation.dto.response.StaffInformationDTO;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

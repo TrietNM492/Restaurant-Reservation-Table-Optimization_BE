@@ -16,6 +16,7 @@ public class UserSecurityRes {
 
     Long id;
     String username;
+    String password;
     String email;
     String gender;
     String fullname;

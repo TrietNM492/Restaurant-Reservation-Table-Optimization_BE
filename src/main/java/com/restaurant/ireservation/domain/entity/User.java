@@ -34,6 +34,8 @@ public class User extends BaseEntity {
     @Size(min = 2, max = 200, message = "Fullname pla")
     String fullname;
 
+    String avatar;
+
     @Enumerated(EnumType.STRING)
     Gender gender;
 
