@@ -5,16 +5,18 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
-import org.springframework.security.oauth2.jwt.JwsHeader;
-import org.springframework.security.oauth2.jwt.JwtClaimsSet;
-import org.springframework.security.oauth2.jwt.JwtEncoder;
-import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.*;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -84,4 +86,40 @@ public class JwtService {
             return e.getClaims();
         }
     }
+
+    public Claims parseRefreshToken(String token) {
+        return Jwts.parser().verifyWith(jwtSecretKey).build().parseSignedClaims(token).getPayload();
+    }
+
+    private static String extractPrincipal(Authentication authentication) {
+        if (authentication == null) {
+            return null;
+        } else {
+            Object var2;
+            if ((var2 = authentication.getPrincipal()) instanceof UserDetails) {
+                UserDetails springSecurityUser = (UserDetails) var2;
+                return springSecurityUser.getUsername();
+            } else {
+                Object var4;
+                if ((var4 = authentication.getPrincipal()) instanceof Jwt) {
+                    Jwt jwt = (Jwt) var4;
+                    return jwt.getSubject();
+                } else {
+                    Object var6;
+                    if ((var6 = authentication.getPrincipal()) instanceof String) {
+                        String s = (String) var6;
+                        return s;
+                    } else {
+                        return null;
+                    }
+                }
+            }
+        }
+    }
+
+    public static Optional<String> getCurrentUser() {
+        SecurityContext securityContext = SecurityContextHolder.getContext();
+        return  Optional.ofNullable(extractPrincipal(securityContext.getAuthentication()));
+    }
+
 }

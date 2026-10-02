@@ -41,4 +41,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Modifying
     int resetRefreshTokenByUsername(@Param("username") String username);
 
+    @Query("update User u set u.avatar = :fileName where u.id = :id")
+    @Modifying
+    int updateUserAvatarById(@Param("id") Long id, @Param("fileName") String fileName);
+
 }

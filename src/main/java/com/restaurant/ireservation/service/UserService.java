@@ -10,6 +10,7 @@ import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.RoleRepository;
 import com.restaurant.ireservation.repository.UserRepository;
 import com.restaurant.ireservation.security.AuthoritiesConstants;
+import com.restaurant.ireservation.security.JwtService;
 import com.restaurant.ireservation.security.SessionManager;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +18,10 @@ import lombok.experimental.FieldDefaults;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.net.URISyntaxException;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -30,6 +34,8 @@ public class UserService {
     final UserRepository userRepository;
     final PasswordEncoder passwordEncoder;
     final RoleRepository roleRepository;
+    final JwtService jwtService;
+    final FileService fileService;
 
 
     public Optional<UserSecurityRes> getUserSecurityByUsername(String username) {
@@ -70,6 +76,15 @@ public class UserService {
                 .build();
         User savedUser = userRepository.save(newUser);
         return getUserSecurity(savedUser);
+
+    }
+
+    public void changeAvatarAccount(MultipartFile file, Long userId) throws IOException, URISyntaxException {
+        String fileName = fileService.getNameAvatarUrl(file);
+        int updated = userRepository.updateUserAvatarById(userId, fileName);
+        if (updated <= 0) {
+            throw new ResourceNotFoundException("User Not Found!");
+        }
 
     }
 
