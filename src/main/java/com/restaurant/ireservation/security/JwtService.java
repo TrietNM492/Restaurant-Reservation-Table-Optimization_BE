@@ -55,7 +55,7 @@ public class JwtService {
                 .expiresAt(validity)
                 .subject(username)
                 .claim("user", userInsideToken)
-                .claim("permission", permissions)
+                .claim("permissions", permissions)
                 .claim("sessionId", sessionId).build();
         JwsHeader jwsHeader = JwsHeader.with(JWT_ALGO).build();
         return this.jwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claim)).getTokenValue();

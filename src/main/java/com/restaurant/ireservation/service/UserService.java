@@ -79,12 +79,13 @@ public class UserService {
 
     }
 
-    public void changeAvatarAccount(MultipartFile file, Long userId) throws IOException, URISyntaxException {
+    public String changeAvatarAccount(MultipartFile file, Long userId) throws IOException, URISyntaxException {
         String fileName = fileService.getNameAvatarUrl(file);
         int updated = userRepository.updateUserAvatarById(userId, fileName);
         if (updated <= 0) {
             throw new ResourceNotFoundException("User Not Found!");
         }
+        return fileName;
 
     }
 

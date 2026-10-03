@@ -43,8 +43,9 @@ public class CustomJwtAuthenticationConverter implements Converter<Jwt, Collecti
                 throw new BadCredentialsException("Session expired or invalid. Please re-authenticate.");
             }
         }
-        Collection<String> authorities = Collections.singleton(source.getClaimAsString(authoritiesClaimName));
+//        Collection<String> authorities = Collections.singleton(source.getClaimAsString(authoritiesClaimName));
 
+        Collection<String> authorities = source.getClaimAsStringList(authoritiesClaimName);
         return authorities.stream()
                 .map(authotiry -> new SimpleGrantedAuthority(authorityPrefix + authotiry))
                 .collect(Collectors.toSet());
