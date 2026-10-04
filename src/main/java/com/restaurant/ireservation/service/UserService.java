@@ -8,6 +8,7 @@ import com.restaurant.ireservation.dto.request.RegisterAccount;
 import com.restaurant.ireservation.dto.response.UserSecurityRes;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.RoleRepository;
+import com.restaurant.ireservation.repository.StaffInformationRepository;
 import com.restaurant.ireservation.repository.UserRepository;
 import com.restaurant.ireservation.security.AuthoritiesConstants;
 import com.restaurant.ireservation.security.JwtService;
