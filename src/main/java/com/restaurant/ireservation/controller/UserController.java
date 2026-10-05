@@ -13,6 +13,7 @@ import com.restaurant.ireservation.security.CustomUserDetails;
 import com.restaurant.ireservation.service.CustomerService;
 import com.restaurant.ireservation.service.StaffInformationService;
 import com.restaurant.ireservation.service.UserService;
+import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -38,7 +39,6 @@ public class UserController {
     final UserService userService;
     final UserRepository userRepository;
     final CustomerService customerService;
-    final StaffInformationService staffInformationService;
 
     @PostMapping("/change-avatar")
     @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
@@ -57,7 +57,7 @@ public class UserController {
     @PutMapping("/me")
     @PreAuthorize("hasRole('CUSTOMER')")
 //    @Secured("ROLE_CUSTOMER")
-    public ResponseEntity<CustomerResponse> updateProfile(@RequestBody ChangeCustomerProfileDTO profileDTO, @AuthenticationPrincipal Jwt jwt) {
+    public ResponseEntity<CustomerResponse> updateProfile(@Valid @RequestBody ChangeCustomerProfileDTO profileDTO, @AuthenticationPrincipal Jwt jwt) {
         String username = jwt.getSubject();
         User user = userRepository.findUserByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("User Not Found"));
@@ -92,6 +92,20 @@ public class UserController {
         var res = customerService.fetchCustomerProfile(userId);
         return ResponseEntity.ok(res);
     }
+
+    @PatchMapping("/activated")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<String> changeUserStatus(@RequestBody Long userId) {
+        if (userId == null) {
+            throw new RequestInvalidException("User ID missing request!");
+        }
+        String message = userService.toggleActionActivated(userId);
+        return ResponseEntity.ok(message);
+    }
+
+
+//    Change Password -> Nhap mk cu -> nhap mk moi, neu mk cu ok thi doi mk moi
+//    Reset Pass/quen mk -> gui mail co link activated -> user click xong keu nhap mk moi
 
 
 }

@@ -44,5 +44,10 @@ public class StaffInformation {
         return ChronoUnit.YEARS.between(joinDate, endDate);
     }
 
+    public double baseSalary() {
+        double luong_co_ban = 5000000;
+        return luong_co_ban * (tenureStaff() + 1);
+    }
+
 
 }

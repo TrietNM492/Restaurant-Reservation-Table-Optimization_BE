@@ -39,7 +39,7 @@ public class CustomerService {
         User user = userRepository.findById(userId).orElseThrow(() -> new ResourceNotFoundException("User Not Found!"));
         user.setFullname(profileDTO.fullname());
         user.setPhone(profileDTO.phone());
-        user.setGender(Gender.valueOf(profileDTO.gender()));
+        user.setGender(Gender.valueOf(profileDTO.gender().toUpperCase()));
         userRepository.save(user);
         CustomerInformation information = customerRepository.findOneByUserId(userId).orElseThrow(() -> new ResourceNotFoundException("User Not Found!"));
         information.setAddress(profileDTO.address());
