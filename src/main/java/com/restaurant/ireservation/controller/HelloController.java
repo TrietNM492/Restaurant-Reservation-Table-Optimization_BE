@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -30,8 +31,8 @@ public class HelloController {
     }
 
     @GetMapping("/staffs")
-    public ResponseEntity<ResultPaginationDTO> fetchStaff(Pageable pageable) {
-        var staffList = staffInformationService.fetchStaff(pageable);
+    public ResponseEntity<ResultPaginationDTO> fetchStaff(Pageable pageable,@RequestParam(name = "q", required = false) String q) {
+        var staffList = staffInformationService.fetchStaff(q, pageable);
         return ResponseEntity.ok(staffList);
     }
 }

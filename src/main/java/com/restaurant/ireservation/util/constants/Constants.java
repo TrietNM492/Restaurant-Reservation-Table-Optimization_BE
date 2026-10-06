@@ -8,6 +8,8 @@ public class Constants {
     public static final String DEFAULT_LANGUAGE = "en";
     public static final String PHONE_REGEX = "^(0|\\+84)[0-9]{9}$";
     public static final String VERSION_API = "/api/v1";
+    // Regex rule: At least 8 chars, one upper, one lower, one digit, one special char
+    public static final String PASSWORD_REGEX = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@#$%^&*!?])[A-Za-z\\d@#$%^&*!?]{8,}$";
 
     public Constants() {
 
