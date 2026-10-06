@@ -3,10 +3,13 @@ package com.restaurant.ireservation.error;
 import com.restaurant.ireservation.util.RestResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @RestControllerAdvice
 public class GlobalException {
@@ -44,7 +47,6 @@ public class GlobalException {
         return ResponseEntity.status(statusCode).body(res);
     }
 
-
     @ExceptionHandler(value = {RequestInvalidException.class})
     public ResponseEntity<RestResponse<?>> handleBadRequestException(RequestInvalidException e) {
         int statusCode = HttpStatus.BAD_REQUEST.value();
@@ -56,24 +58,27 @@ public class GlobalException {
         return ResponseEntity.status(statusCode).body(res);
     }
 
-    @ExceptionHandler(value = {AccountResourceException.class})
-    public ResponseEntity<RestResponse<?>> handleAccountResourceException(AccountResourceException e) {
-        int statusCode = HttpStatus.BAD_REQUEST.value();
+    @ExceptionHandler(value = {ReservationConflictException.class})
+    public ResponseEntity<RestResponse<?>> handleReservationConflictException(ReservationConflictException e) {
+        int statusCode = HttpStatus.CONFLICT.value();
         var res = new RestResponse<>();
         res.setStatusCode(statusCode);
         res.setMessage(e.getMessage());
-        res.setError("Error with User Profile");
+        res.setError("Reservation Conflict");
         res.setTimestamp(LocalDateTime.now());
         return ResponseEntity.status(statusCode).body(res);
     }
 
-    @ExceptionHandler(value = {UnauthorizeException.class})
-    public ResponseEntity<RestResponse<?>> hanldeUnauthorizeException(UnauthorizeException e) {
-        int statusCode = HttpStatus.UNAUTHORIZED.value();
+    @ExceptionHandler(value = {MethodArgumentNotValidException.class})
+    public ResponseEntity<RestResponse<?>> handleValidationException(MethodArgumentNotValidException e) {
+        int statusCode = HttpStatus.BAD_REQUEST.value();
         var res = new RestResponse<>();
         res.setStatusCode(statusCode);
-        res.setMessage(e.getMessage());
-        res.setError("You Are Not Login");
+        List<String> errors = e.getBindingResult().getFieldErrors().stream()
+                .map(FieldError::getDefaultMessage)
+                .toList();
+        res.setMessage(errors.size() == 1 ? errors.getFirst() : errors);
+        res.setError("Validation Failed");
         res.setTimestamp(LocalDateTime.now());
         return ResponseEntity.status(statusCode).body(res);
     }
