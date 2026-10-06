@@ -9,6 +9,9 @@ import lombok.Setter;
 @Setter
 public class UserResonseDTO {
 
+    Long id;
+    String avatar;
+
     String username;
 
     String email;

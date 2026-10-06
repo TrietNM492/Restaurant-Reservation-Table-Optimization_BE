@@ -42,8 +42,11 @@ public class UserController {
 
     @PostMapping("/change-avatar")
     @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
-    public ResponseEntity<String> changeAvatar(@RequestPart("avatarUrl")MultipartFile file, @AuthenticationPrincipal CustomUserDetails user) throws URISyntaxException, IOException {
-        Long userId = user.getUser().getId();
+    public ResponseEntity<String> changeAvatar(@RequestPart("avatarUrl")MultipartFile file, @AuthenticationPrincipal Jwt jwt) throws URISyntaxException, IOException {
+        String username = jwt.getSubject();
+        User user = userRepository.findUserByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User Not Found!"));
+        Long userId = user.getId();
         if (userId == null) {
             throw new RuntimeException("You are not login");
         }

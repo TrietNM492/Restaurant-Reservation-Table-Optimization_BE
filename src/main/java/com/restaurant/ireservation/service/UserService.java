@@ -2,10 +2,12 @@ package com.restaurant.ireservation.service;
 
 import com.restaurant.ireservation.domain.entity.Permission;
 import com.restaurant.ireservation.domain.entity.Role;
+import com.restaurant.ireservation.domain.entity.StaffInformation;
 import com.restaurant.ireservation.domain.entity.User;
 import com.restaurant.ireservation.domain.enumerations.Gender;
 import com.restaurant.ireservation.dto.request.RegisterAccount;
 import com.restaurant.ireservation.dto.request.StaffInformationRequest;
+import com.restaurant.ireservation.dto.request.UpdateUserStaffRequest;
 import com.restaurant.ireservation.dto.response.StaffInformationResponse;
 import com.restaurant.ireservation.dto.response.UserSecurityRes;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
@@ -113,13 +115,32 @@ public class UserService {
         }
         User newStaff = User.builder()
                 .fullname(request.getFullname())
-                .username(request.getUsername())
+                .username(request.getUsername().toLowerCase())
+                .email(request.getEmail().toLowerCase())
                 .gender(Gender.valueOf(request.getGender().toUpperCase()))
                 .role(role)
                 .phone(request.getPhone())
                 .password(passwordEncoder.encode(tempPassword))
                 .isActive(true).build();
         return userRepository.save(newStaff);
+
+    }
+
+    public User updateStaff(UpdateUserStaffRequest request, StaffInformation staffInformation) {
+        User userStaff = userRepository.findById(staffInformation.getUser().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Bad Logic"));
+        if (userRepository.existsByEmailAndIdNot(request.getEmail(), request.getId())) {
+            throw new UserAlreadyUsedException("Email is Exist!");
+        }
+        Role role = roleRepository.findOneByName(request.getRole().toUpperCase())
+                .orElseThrow(() -> new ResourceNotFoundException("Not found this role!"));
+
+        userStaff.setEmail(request.getEmail());
+        userStaff.setFullname(request.getFullname());
+        userStaff.setGender(Gender.valueOf(request.getGender().toUpperCase()));
+        userStaff.setPhone(request.getPhone());
+        userStaff.setRole(role);
+        return userRepository.save(userStaff);
 
     }
 

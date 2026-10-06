@@ -60,7 +60,7 @@ public class SecurityConfig {
                 "/api/v1/payments/vnpay-return"
         };
         List<String> publishEndpoints = List.of(Constants.VERSION_API + "/home",
-                Constants.VERSION_API + "/account/register",
+                Constants.VERSION_API + "/auth/register",
                 Constants.VERSION_API + "/auth/login",
                 Constants.VERSION_API + "/auth/refresh",
                 Constants.VERSION_API + "/account/activate/**",
@@ -75,7 +75,7 @@ public class SecurityConfig {
                                 auth
                                         // guest
                                         .requestMatchers(HttpMethod.GET, Constants.VERSION_API + "/home").permitAll()
-                                        .requestMatchers(HttpMethod.POST, Constants.VERSION_API + "/account/register")
+                                        .requestMatchers(HttpMethod.POST, Constants.VERSION_API + "/auth/register")
                                         .permitAll()
                                         .requestMatchers(HttpMethod.POST, Constants.VERSION_API + "/auth/login").permitAll()
 
@@ -89,7 +89,7 @@ public class SecurityConfig {
                                                 Constants.VERSION_API + "/account/reset-password/finish")
                                         .permitAll()
                                         .requestMatchers(whiteList).permitAll()
-                                        .anyRequest().permitAll())
+                                        .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwtConfigurer -> jwtConfigurer.jwtAuthenticationConverter(converter)
                                 .decoder(new GuestAwareJwtDecoder(decoder, request, publishEndpoints))

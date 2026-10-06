@@ -3,9 +3,12 @@ package com.restaurant.ireservation.service;
 import com.restaurant.ireservation.domain.entity.StaffInformation;
 import com.restaurant.ireservation.domain.entity.User;
 import com.restaurant.ireservation.domain.enumerations.Department;
+import com.restaurant.ireservation.dto.request.ChangeUserStatus;
 import com.restaurant.ireservation.dto.request.StaffInformationRequest;
+import com.restaurant.ireservation.dto.request.UpdateUserStaffRequest;
 import com.restaurant.ireservation.dto.response.StaffInformationDTO;
 import com.restaurant.ireservation.dto.response.StaffInformationResponse;
+import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.StaffInformationRepository;
 import com.restaurant.ireservation.repository.UserRepository;
 import com.restaurant.ireservation.util.ResultPaginationDTO;
@@ -143,9 +146,46 @@ public class StaffInformationService {
         response.setGender(staffUser.getGender().toString());
         response.setUsername(staffUser.getUsername());
         response.setJoinDate(request.getJoinDate());
-        response.setSalary(response.getSalary());
+        response.setSalary(request.getSalary());
         response.setPhone(staffUser.getPhone());
+        response.setEmployeeCode(request.getEmployeeCode());
+        response.setResignationDate(request.getResignationDate());
+        response.setId(staffUser.getId());
+        response.setAvatar(staffUser.getAvatar());
         return response;
+
+    }
+
+    public StaffInformationResponse fetchStaffById(Long staffId) {
+        StaffInformation staffInformation = staffInformationRepository.findById(staffId)
+                .orElseThrow(() -> new ResourceNotFoundException("Staff Not Found!"));
+        User userStaff = userRepository.findById(staffInformation.getUser().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Bad Logic"));
+        return toStaffInformationResponse(staffInformation, userStaff);
+    }
+
+    public StaffInformationResponse updateStaff(UpdateUserStaffRequest request) {
+        StaffInformation staffInformation =staffInformationRepository.findById(request.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Staff Not Found!"));
+
+        User userStaff = userService.updateStaff(request, staffInformation);
+        staffInformation.setDepartment(Department.valueOf(request.getDepartment().toUpperCase()));
+        return toStaffInformationResponse(staffInformation, userStaff);
+
+    }
+
+    public ChangeUserStatus toggleChangeStaffStatus(ChangeUserStatus request) {
+        StaffInformation staffInformation = staffInformationRepository.findById(request.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Staff Not Found!"));
+        User staffUser = userRepository.findById(staffInformation.getUser().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Bad Logic"));
+        userService.toggleActionActivated(staffUser.getId());
+
+        ChangeUserStatus status = new ChangeUserStatus();
+        status.setId(request.getId());
+        status.setReason(request.getReason());
+        status.setNotifyUser(request.isNotifyUser());
+        return status;
 
     }
 
