@@ -55,4 +55,26 @@ public class GlobalException {
         res.setTimestamp(LocalDateTime.now());
         return ResponseEntity.status(statusCode).body(res);
     }
+
+    @ExceptionHandler(value = {AccountResourceException.class})
+    public ResponseEntity<RestResponse<?>> handleAccountResourceException(AccountResourceException e) {
+        int statusCode = HttpStatus.BAD_REQUEST.value();
+        var res = new RestResponse<>();
+        res.setStatusCode(statusCode);
+        res.setMessage(e.getMessage());
+        res.setError("Error with User Profile");
+        res.setTimestamp(LocalDateTime.now());
+        return ResponseEntity.status(statusCode).body(res);
+    }
+
+    @ExceptionHandler(value = {UnauthorizeException.class})
+    public ResponseEntity<RestResponse<?>> hanldeUnauthorizeException(UnauthorizeException e) {
+        int statusCode = HttpStatus.UNAUTHORIZED.value();
+        var res = new RestResponse<>();
+        res.setStatusCode(statusCode);
+        res.setMessage(e.getMessage());
+        res.setError("You Are Not Login");
+        res.setTimestamp(LocalDateTime.now());
+        return ResponseEntity.status(statusCode).body(res);
+    }
 }
