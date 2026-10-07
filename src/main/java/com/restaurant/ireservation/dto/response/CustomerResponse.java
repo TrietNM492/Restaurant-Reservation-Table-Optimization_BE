@@ -20,11 +20,15 @@ public class CustomerResponse {
     @AllArgsConstructor
     @Builder
     public static class CustomerProfile {
+        String fullname;
+        String gender;
+        String phone;
         LocalDate dateOfBirth;
         String indentityCard;
         String address;
 
         Integer point;
+        String avatar;
 
         String customerRank;
 

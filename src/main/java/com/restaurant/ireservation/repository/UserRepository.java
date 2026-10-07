@@ -27,12 +27,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query(value = "update User u set u.refreshToken = :refresh where u.id = :userId")
     int updateRefreshTokenById(@Param("userId") Long userId, @Param("refresh") String token);
 
-    @Query(value = "select u from User u left join fetch u.role r left join fetch r.permissions p where u.username = :username")
+    @Query(value = "select u from User u left join fetch u.role r left join fetch r.permissions p where u.username = :username and u.isActive = true")
     Optional<User> findOneWithAuthoritiesByUsername(@Param("username") String username);
 
     boolean existsByEmail(String email);
 
     boolean existsByUsername(String username);
+
+    boolean existsByEmailAndIdNot(String email, Long id);
 
     @Query(value = "select u.refreshToken from User u where u.id = :userId")
     String getRefreshTokenById(@Param("userId") Long userId);
@@ -40,5 +42,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query(value = "update User u set u.refreshToken = null where u.username = :username")
     @Modifying
     int resetRefreshTokenByUsername(@Param("username") String username);
+
+    @Query("update User u set u.avatar = :fileName where u.id = :id")
+    @Modifying
+    int updateUserAvatarById(@Param("id") Long id, @Param("fileName") String fileName);
 
 }
