@@ -8,10 +8,14 @@ import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.ReservationType;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
 import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
+import org.springframework.security.access.AccessDeniedException;
+
+import java.util.Optional;
 import com.restaurant.ireservation.repository.ReservationRepository;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
 import com.restaurant.ireservation.repository.RestaurantTableRepository;
@@ -370,5 +374,736 @@ class ReservationServiceTest {
         assertTrue(queriedStatuses.contains(ReservationStatus.IN_PROGRESS));
         assertFalse(queriedStatuses.contains(ReservationStatus.COMPLETED));
         assertFalse(queriedStatuses.contains(ReservationStatus.NO_SHOW));
+    }
+
+    // ==========================================
+    // PHASE 2: UPDATE RESERVATION TESTS
+    // ==========================================
+
+    @Test
+    @DisplayName("P2-TC-01: Successful reservation update for a single table")
+    void updateReservation_success_singleTable() {
+        Long reservationId = 1L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .note("Old note")
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+        existing.setCreatedDate(now);
+
+        Instant newStartTime = startTime.plus(Duration.ofHours(1));
+        Instant newEndTime = endTime.plus(Duration.ofHours(1));
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.MEDIUM)
+                .reservationType(ReservationType.TABLE)
+                .startTime(newStartTime)
+                .endTime(newEndTime)
+                .tableIds(List.of(1L))
+                .note("Updated note")
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(1L))).thenReturn(List.of(table1));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(
+                eq(List.of(1L)), eq(reservationId), anyCollection(), eq(newStartTime), eq(newEndTime)))
+                .thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReservationResponseDTO response = reservationService.updateReservation(reservationId, dto, "customer1");
+
+        assertNotNull(response);
+        assertEquals(reservationId, response.getId());
+        assertEquals("RES-05102026-001", response.getReservationNo());
+        assertEquals(PartySize.MEDIUM, response.getPartySize());
+        assertEquals("Updated note", response.getNote());
+        assertEquals(ReservationStatus.PENDING, response.getReservationStatus());
+        assertEquals(1, response.getTables().size());
+        assertEquals(10, response.getTables().get(0).getTableNumber());
+        assertEquals("customer1", response.getCreatedBy());
+
+        verify(reservationTableRepository).deleteByReservationId(reservationId);
+        verify(reservationTableRepository).saveAll(anyList());
+        verify(reservationRepository).save(existing);
+    }
+
+    @Test
+    @DisplayName("P2-TC-02: Update fields preserves immutable fields (id, reservationNo, reservationStatus, createdBy, createdDate)")
+    void updateReservation_success_preservesImmutableFields() {
+        Long reservationId = 2L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-002")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .note("Old")
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+        existing.setCreatedDate(now);
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime.plus(Duration.ofHours(1)))
+                .endTime(endTime.plus(Duration.ofHours(1)))
+                .tableIds(List.of(1L))
+                .note("New")
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(1L))).thenReturn(List.of(table1));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(
+                eq(List.of(1L)), eq(reservationId), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReservationResponseDTO response = reservationService.updateReservation(reservationId, dto, "customer1");
+
+        assertEquals(reservationId, response.getId());
+        assertEquals("RES-05102026-002", response.getReservationNo());
+        assertEquals(ReservationStatus.PENDING, response.getReservationStatus());
+        assertEquals("customer1", response.getCreatedBy());
+        assertEquals(now, response.getCreatedDate());
+        verifyNoInteractions(stringRedisTemplate);
+    }
+
+    @Test
+    @DisplayName("P2-TC-03: Update replaces table associations correctly")
+    void updateReservation_success_updatesTables() {
+        Long reservationId = 3L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-003")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(2L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(2L))).thenReturn(List.of(table2));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(
+                eq(List.of(2L)), eq(reservationId), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReservationResponseDTO response = reservationService.updateReservation(reservationId, dto, "customer1");
+
+        assertEquals(1, response.getTables().size());
+        assertEquals(2L, response.getTables().get(0).getId());
+        assertEquals(11, response.getTables().get(0).getTableNumber());
+
+        verify(reservationTableRepository).deleteByReservationId(reservationId);
+        verify(reservationTableRepository).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("P2-TC-04: Self conflict is excluded when updating with same tables and overlapping slot")
+    void updateReservation_success_selfConflictExcluded() {
+        Long reservationId = 4L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-004")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime.plus(Duration.ofMinutes(30)))
+                .endTime(endTime.plus(Duration.ofMinutes(30)))
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(1L))).thenReturn(List.of(table1));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(
+                eq(List.of(1L)), eq(reservationId), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReservationResponseDTO response = reservationService.updateReservation(reservationId, dto, "customer1");
+        assertNotNull(response);
+
+        verify(reservationTableRepository).findConflictingReservationsExcludingReservation(
+                eq(List.of(1L)), eq(reservationId), anyCollection(), any(), any());
+    }
+
+    @Test
+    @DisplayName("P2-TC-05: Adjacent time slot allowed without conflict during update")
+    void updateReservation_success_adjacentTimeSlotAllowed() {
+        Long reservationId = 5L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-005")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        Instant adjacentStart = endTime;
+        Instant adjacentEnd = adjacentStart.plus(Duration.ofHours(2));
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(adjacentStart)
+                .endTime(adjacentEnd)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(1L))).thenReturn(List.of(table1));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(
+                eq(List.of(1L)), eq(reservationId), anyCollection(), eq(adjacentStart), eq(adjacentEnd)))
+                .thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReservationResponseDTO response = reservationService.updateReservation(reservationId, dto, "customer1");
+        assertNotNull(response);
+    }
+
+    @Test
+    @DisplayName("P2-TC-06: Reservation not found should throw ResourceNotFoundException")
+    void updateReservation_fail_notFound() {
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(999L)).thenReturn(Optional.empty());
+
+        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class,
+                () -> reservationService.updateReservation(999L, dto, "customer1"));
+        assertEquals("Reservation not found with id: 999", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("P2-TC-07: Ownership mismatch should throw AccessDeniedException")
+    void updateReservation_fail_ownershipMismatch() {
+        Long reservationId = 7L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-007")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("original_customer");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "other_customer"));
+        assertEquals("You are not allowed to update this reservation", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("P2-TC-07B: Null createdBy should throw AccessDeniedException")
+    void updateReservation_fail_nullCreatedBy() {
+        Long reservationId = 71L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-071")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy(null);
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        assertThrows(AccessDeniedException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+    }
+
+    @Test
+    @DisplayName("P2-TC-08: PENDING status allowed for update")
+    void updateReservation_success_pendingStatusAllowed() {
+        Long reservationId = 8L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-008")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(1L))).thenReturn(List.of(table1));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(
+                eq(List.of(1L)), eq(reservationId), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertDoesNotThrow(() -> reservationService.updateReservation(reservationId, dto, "customer1"));
+    }
+
+    @Test
+    @DisplayName("P2-TC-09: CONFIRMED status rejected with RequestInvalidException")
+    void updateReservation_fail_confirmedStatusRejected() {
+        Long reservationId = 9L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-009")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+        assertEquals("Only reservations with PENDING status can be updated", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("P2-TC-10: IN_PROGRESS status rejected with RequestInvalidException")
+    void updateReservation_fail_inProgressStatusRejected() {
+        Long reservationId = 10L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-010")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.IN_PROGRESS)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+        assertEquals("Only reservations with PENDING status can be updated", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("P2-TC-11: COMPLETED status rejected with RequestInvalidException")
+    void updateReservation_fail_completedStatusRejected() {
+        Long reservationId = 11L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-011")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.COMPLETED)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+        assertEquals("Only reservations with PENDING status can be updated", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("P2-TC-12: NO_SHOW status rejected with RequestInvalidException")
+    void updateReservation_fail_noShowStatusRejected() {
+        Long reservationId = 12L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-012")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.NO_SHOW)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+        assertEquals("Only reservations with PENDING status can be updated", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("P2-TC-13: End time before or equal to start time should throw RequestInvalidException")
+    void updateReservation_fail_endTimeBeforeStartTime() {
+        Long reservationId = 13L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-013")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(endTime)
+                .endTime(startTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+        assertEquals("End time must be after start time", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("P2-TC-14: Unsupported reservation type should throw RequestInvalidException")
+    void updateReservation_fail_unsupportedReservationType() {
+        Long reservationId = 14L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-014")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+        assertEquals("Only TABLE reservations are supported", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("P2-TC-15: Duplicate table IDs in request should throw RequestInvalidException")
+    void updateReservation_fail_duplicateTableIds() {
+        Long reservationId = 15L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-015")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L, 1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+        assertEquals("Duplicate table IDs in request", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("P2-TC-16: Table not found should throw ResourceNotFoundException")
+    void updateReservation_fail_tableNotFound() {
+        Long reservationId = 16L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-016")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(999L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(999L))).thenReturn(Collections.emptyList());
+
+        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+        assertEquals("One or more requested tables do not exist", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("P2-TC-17: Locked table should throw RequestInvalidException")
+    void updateReservation_fail_tableLocked() {
+        Long reservationId = 17L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-017")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        RestaurantTable lockedTable = RestaurantTable.builder()
+                .tableNumber(10)
+                .capacity(4)
+                .statusCode(TableStatus.LOCKED)
+                .build();
+        lockedTable.setId(1L);
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(1L))).thenReturn(List.of(lockedTable));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+        assertTrue(ex.getMessage().contains("currently locked"));
+    }
+
+    @Test
+    @DisplayName("P2-TC-18: Overlapping conflict with another active reservation should throw ReservationConflictException")
+    void updateReservation_fail_conflictWithOtherActiveReservation() {
+        Long reservationId = 18L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-018")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(1L))).thenReturn(List.of(table1));
+
+        Reservation otherReservation = Reservation.builder()
+                .reservationNo("RES-05102026-999")
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        otherReservation.setId(99L);
+
+        ReservationTable conflictTable = ReservationTable.builder()
+                .reservation(otherReservation)
+                .table(table1)
+                .build();
+
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(
+                eq(List.of(1L)), eq(reservationId), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(List.of(conflictTable));
+
+        ReservationConflictException ex = assertThrows(ReservationConflictException.class,
+                () -> reservationService.updateReservation(reservationId, dto, "customer1"));
+        assertTrue(ex.getMessage().contains("already reserved"));
+    }
+
+    @Test
+    @DisplayName("P2-TC-19: COMPLETED and NO_SHOW reservations do not block during update")
+    @SuppressWarnings("unchecked")
+    void updateReservation_success_completedAndNoShowDoNotBlock() {
+        Long reservationId = 19L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-019")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(1L))).thenReturn(List.of(table1));
+
+        ArgumentCaptor<Collection<ReservationStatus>> statusCaptor = ArgumentCaptor.forClass(Collection.class);
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(
+                eq(List.of(1L)), eq(reservationId), statusCaptor.capture(), eq(startTime), eq(endTime)))
+                .thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReservationResponseDTO response = reservationService.updateReservation(reservationId, dto, "customer1");
+        assertNotNull(response);
+
+        Collection<ReservationStatus> queriedStatuses = statusCaptor.getValue();
+        assertTrue(queriedStatuses.contains(ReservationStatus.PENDING));
+        assertTrue(queriedStatuses.contains(ReservationStatus.CONFIRMED));
+        assertTrue(queriedStatuses.contains(ReservationStatus.IN_PROGRESS));
+        assertFalse(queriedStatuses.contains(ReservationStatus.COMPLETED));
+        assertFalse(queriedStatuses.contains(ReservationStatus.NO_SHOW));
+    }
+
+    @Test
+    @DisplayName("P2-TC-20: Update succeeds with null note or valid note")
+    void updateReservation_success_nullNote() {
+        Long reservationId = 20L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-020")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .note("Had a note")
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .note(null)
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(restaurantTableRepository.findAllById(List.of(1L))).thenReturn(List.of(table1));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(
+                eq(List.of(1L)), eq(reservationId), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReservationResponseDTO response = reservationService.updateReservation(reservationId, dto, "customer1");
+        assertNotNull(response);
+        assertNull(response.getNote());
     }
 }

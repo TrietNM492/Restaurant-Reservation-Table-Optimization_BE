@@ -6,8 +6,11 @@ import com.restaurant.ireservation.domain.enumerations.PartySize;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.ReservationType;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
 import com.restaurant.ireservation.error.GlobalException;
+import com.restaurant.ireservation.error.ReservationConflictException;
+import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.service.ReservationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -37,6 +41,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -181,5 +186,188 @@ class ReservationControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    // ==========================================
+    // PHASE 2: UPDATE RESERVATION CONTROLLER TESTS
+    // ==========================================
+
+    @Test
+    @DisplayName("P2-TC-01: Valid PUT request returns HTTP 200 OK")
+    void updateReservation_validRequest_returns200() throws Exception {
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        UpdateReservationRequestDTO request = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .note("Updated note")
+                .build();
+
+        ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
+                .id(1L)
+                .reservationNo("RES-05102026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .note("Updated note")
+                .createdBy("test_customer")
+                .build();
+
+        when(reservationService.updateReservation(eq(1L), any(UpdateReservationRequestDTO.class), eq("test_customer")))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(put("/api/v1/reservations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.reservationNo").value("RES-05102026-001"))
+                .andExpect(jsonPath("$.note").value("Updated note"));
+    }
+
+    @Test
+    @DisplayName("P2-TC-02: Past startTime fails @Future validation returning HTTP 400")
+    void updateReservation_pastStartTime_returns400() throws Exception {
+        Instant pastStartTime = Instant.now().minus(Duration.ofHours(1));
+        Instant endTime = Instant.now().plus(Duration.ofHours(1));
+
+        UpdateReservationRequestDTO request = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(pastStartTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        mockMvc.perform(put("/api/v1/reservations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    @Test
+    @DisplayName("P2-TC-03: Empty tableIds fails @NotEmpty validation returning HTTP 400")
+    void updateReservation_emptyTableIds_returns400() throws Exception {
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        UpdateReservationRequestDTO request = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(Collections.emptyList())
+                .build();
+
+        mockMvc.perform(put("/api/v1/reservations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    @Test
+    @DisplayName("P2-TC-04: Note exceeding 500 characters fails @Size validation returning HTTP 400")
+    void updateReservation_noteTooLong_returns400() throws Exception {
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+        String longNote = "A".repeat(501);
+
+        UpdateReservationRequestDTO request = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .note(longNote)
+                .build();
+
+        mockMvc.perform(put("/api/v1/reservations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    @Test
+    @DisplayName("P2-TC-05: Reservation not found maps correctly to HTTP 404")
+    void updateReservation_notFound_returns404() throws Exception {
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        UpdateReservationRequestDTO request = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationService.updateReservation(eq(999L), any(UpdateReservationRequestDTO.class), eq("test_customer")))
+                .thenThrow(new ResourceNotFoundException("Reservation not found with id: 999"));
+
+        mockMvc.perform(put("/api/v1/reservations/999")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Reservation not found with id: 999"));
+    }
+
+    @Test
+    @DisplayName("P2-TC-06: Conflicting reservation maps correctly to HTTP 409")
+    void updateReservation_conflict_returns409() throws Exception {
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        UpdateReservationRequestDTO request = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationService.updateReservation(eq(1L), any(UpdateReservationRequestDTO.class), eq("test_customer")))
+                .thenThrow(new ReservationConflictException("Table 10 is already reserved during the requested time slot"));
+
+        mockMvc.perform(put("/api/v1/reservations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Reservation Conflict"))
+                .andExpect(jsonPath("$.message").value("Table 10 is already reserved during the requested time slot"));
+    }
+
+    @Test
+    @DisplayName("P2-TC-07: Ownership/authorization failure maps to HTTP 403 Forbidden")
+    void updateReservation_ownershipMismatch_returns403() throws Exception {
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        UpdateReservationRequestDTO request = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .tableIds(List.of(1L))
+                .build();
+
+        when(reservationService.updateReservation(eq(1L), any(UpdateReservationRequestDTO.class), eq("test_customer")))
+                .thenThrow(new AccessDeniedException("You are not allowed to update this reservation"));
+
+        mockMvc.perform(put("/api/v1/reservations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"))
+                .andExpect(jsonPath("$.message").value("You are not allowed to update this reservation"));
     }
 }
