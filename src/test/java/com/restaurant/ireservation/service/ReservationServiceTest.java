@@ -1106,4 +1106,233 @@ class ReservationServiceTest {
         assertNotNull(response);
         assertNull(response.getNote());
     }
+
+    @Test
+    @DisplayName("P3-TC-01: Successfully cancel reservation with PENDING status")
+    void cancelReservation_success_fromPending() {
+        Long reservationId = 1L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .note("Quiet table")
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        ReservationTable resTable = ReservationTable.builder()
+                .reservation(existing)
+                .table(table1)
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(List.of(resTable));
+
+        ReservationResponseDTO response = reservationService.cancelReservation(reservationId, "customer1");
+
+        assertNotNull(response);
+        assertEquals(reservationId, response.getId());
+        assertEquals(ReservationStatus.CANCELLED, response.getReservationStatus());
+        assertEquals(1, response.getTables().size());
+        assertEquals(10, response.getTables().get(0).getTableNumber());
+
+        verify(reservationRepository).save(argThat(r -> r.getReservationStatus() == ReservationStatus.CANCELLED));
+        verify(reservationTableRepository, never()).deleteByReservationId(anyLong());
+        verify(reservationTableRepository, never()).delete(any());
+        verify(reservationTableRepository, never()).deleteAll(any());
+    }
+
+    @Test
+    @DisplayName("P3-TC-02: Successfully cancel reservation with CONFIRMED status")
+    void cancelReservation_success_fromConfirmed() {
+        Long reservationId = 2L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-002")
+                .partySize(PartySize.MEDIUM)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
+
+        ReservationResponseDTO response = reservationService.cancelReservation(reservationId, "customer1");
+
+        assertNotNull(response);
+        assertEquals(ReservationStatus.CANCELLED, response.getReservationStatus());
+        verify(reservationRepository).save(argThat(r -> r.getReservationStatus() == ReservationStatus.CANCELLED));
+    }
+
+    @Test
+    @DisplayName("P3-TC-03: Cancellation fails with 404 when reservation does not exist")
+    void cancelReservation_fail_notFound() {
+        when(reservationRepository.findById(999L)).thenReturn(Optional.empty());
+
+        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class,
+                () -> reservationService.cancelReservation(999L, "customer1"));
+
+        assertEquals("Reservation not found with id: 999", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("P3-TC-04: Cancellation fails with 403 when user is not the creator")
+    void cancelReservation_fail_ownershipMismatch() {
+        Long reservationId = 1L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-001")
+                .reservationStatus(ReservationStatus.PENDING)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer2");
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class,
+                () -> reservationService.cancelReservation(reservationId, "customer1"));
+
+        assertEquals("You are not allowed to cancel this reservation", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("P3-TC-05: Cancellation fails with 403 when reservation createdBy is null")
+    void cancelReservation_fail_nullCreatedBy() {
+        Long reservationId = 1L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-001")
+                .reservationStatus(ReservationStatus.PENDING)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy(null);
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class,
+                () -> reservationService.cancelReservation(reservationId, "customer1"));
+
+        assertEquals("You are not allowed to cancel this reservation", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("P3-TC-06: Cancellation fails when reservation is already CANCELLED")
+    void cancelReservation_fail_alreadyCancelled() {
+        Long reservationId = 1L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-001")
+                .reservationStatus(ReservationStatus.CANCELLED)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.cancelReservation(reservationId, "customer1"));
+
+        assertEquals("Reservation is already cancelled", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("P3-TC-07: Cancellation fails when reservation is IN_PROGRESS")
+    void cancelReservation_fail_inProgress() {
+        Long reservationId = 1L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-001")
+                .reservationStatus(ReservationStatus.IN_PROGRESS)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.cancelReservation(reservationId, "customer1"));
+
+        assertEquals("Only reservations with PENDING or CONFIRMED status can be cancelled", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("P3-TC-08: Cancellation fails when reservation is COMPLETED")
+    void cancelReservation_fail_completed() {
+        Long reservationId = 1L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-001")
+                .reservationStatus(ReservationStatus.COMPLETED)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.cancelReservation(reservationId, "customer1"));
+
+        assertEquals("Only reservations with PENDING or CONFIRMED status can be cancelled", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("P3-TC-09: Cancellation fails when reservation is NO_SHOW")
+    void cancelReservation_fail_noShow() {
+        Long reservationId = 1L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-001")
+                .reservationStatus(ReservationStatus.NO_SHOW)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.cancelReservation(reservationId, "customer1"));
+
+        assertEquals("Only reservations with PENDING or CONFIRMED status can be cancelled", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("P3-TC-10: Cancellation retains ReservationTable records for historical audit")
+    void cancelReservation_preservesTableLinks() {
+        Long reservationId = 10L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-010")
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        ReservationTable resTable1 = ReservationTable.builder().reservation(existing).table(table1).build();
+        ReservationTable resTable2 = ReservationTable.builder().reservation(existing).table(table2).build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(List.of(resTable1, resTable2));
+
+        ReservationResponseDTO response = reservationService.cancelReservation(reservationId, "customer1");
+
+        assertNotNull(response);
+        assertEquals(2, response.getTables().size());
+        verify(reservationTableRepository).findByReservationId(reservationId);
+        verify(reservationTableRepository, never()).deleteByReservationId(anyLong());
+        verify(reservationTableRepository, never()).delete(any());
+        verify(reservationTableRepository, never()).deleteAll(any());
+    }
 }

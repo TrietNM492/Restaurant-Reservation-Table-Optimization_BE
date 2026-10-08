@@ -47,4 +47,16 @@ public class ReservationController {
         String username = jwt.getSubject();
         return reservationService.updateReservation(id, requestDTO, username);
     }
+
+    @PostMapping("/{id}/cancel")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
+    @ApiMessage("Cancel reservation successfully")
+    public ReservationResponseDTO cancelReservation(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String username = jwt.getSubject();
+        return reservationService.cancelReservation(id, username);
+    }
 }

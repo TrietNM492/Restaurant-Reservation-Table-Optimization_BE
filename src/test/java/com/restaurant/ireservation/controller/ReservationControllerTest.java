@@ -9,6 +9,7 @@ import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
 import com.restaurant.ireservation.error.GlobalException;
+import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.service.ReservationService;
@@ -369,5 +370,75 @@ class ReservationControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("Forbidden"))
                 .andExpect(jsonPath("$.message").value("You are not allowed to update this reservation"));
+    }
+
+    @Test
+    @DisplayName("P3-TC-01: Valid cancellation request returns HTTP 200 OK")
+    void cancelReservation_validRequest_returns200() throws Exception {
+        ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
+                .id(1L)
+                .reservationNo("RES-05102026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.CANCELLED)
+                .createdBy("test_customer")
+                .build();
+
+        when(reservationService.cancelReservation(eq(1L), eq("test_customer")))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(post("/api/v1/reservations/1/cancel"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.reservationStatus").value("CANCELLED"))
+                .andExpect(jsonPath("$.reservationNo").value("RES-05102026-001"));
+    }
+
+    @Test
+    @DisplayName("P3-TC-02: Non-existent reservation maps correctly to HTTP 404 Not Found")
+    void cancelReservation_notFound_returns404() throws Exception {
+        when(reservationService.cancelReservation(eq(999L), eq("test_customer")))
+                .thenThrow(new ResourceNotFoundException("Reservation not found with id: 999"));
+
+        mockMvc.perform(post("/api/v1/reservations/999/cancel"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Reservation not found with id: 999"));
+    }
+
+    @Test
+    @DisplayName("P3-TC-03: Ownership mismatch maps correctly to HTTP 403 Forbidden")
+    void cancelReservation_ownershipMismatch_returns403() throws Exception {
+        when(reservationService.cancelReservation(eq(1L), eq("test_customer")))
+                .thenThrow(new AccessDeniedException("You are not allowed to cancel this reservation"));
+
+        mockMvc.perform(post("/api/v1/reservations/1/cancel"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"))
+                .andExpect(jsonPath("$.message").value("You are not allowed to cancel this reservation"));
+    }
+
+    @Test
+    @DisplayName("P3-TC-04: Non-cancellable status maps correctly to HTTP 400 Bad Request")
+    void cancelReservation_invalidStatus_returns400() throws Exception {
+        when(reservationService.cancelReservation(eq(1L), eq("test_customer")))
+                .thenThrow(new RequestInvalidException("Only reservations with PENDING or CONFIRMED status can be cancelled"));
+
+        mockMvc.perform(post("/api/v1/reservations/1/cancel"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Only reservations with PENDING or CONFIRMED status can be cancelled"));
+    }
+
+    @Test
+    @DisplayName("P3-TC-05: Already cancelled reservation maps correctly to HTTP 400 Bad Request")
+    void cancelReservation_alreadyCancelled_returns400() throws Exception {
+        when(reservationService.cancelReservation(eq(1L), eq("test_customer")))
+                .thenThrow(new RequestInvalidException("Reservation is already cancelled"));
+
+        mockMvc.perform(post("/api/v1/reservations/1/cancel"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Reservation is already cancelled"));
     }
 }

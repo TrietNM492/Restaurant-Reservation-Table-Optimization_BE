@@ -203,6 +203,35 @@ public class ReservationService {
         return mapToResponseDTO(updatedReservation, tables);
     }
 
+    @Transactional
+    public ReservationResponseDTO cancelReservation(Long id, String username) {
+        Reservation reservation = reservationRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
+
+        if (reservation.getCreatedBy() == null || !reservation.getCreatedBy().equals(username)) {
+            throw new AccessDeniedException("You are not allowed to cancel this reservation");
+        }
+
+        if (reservation.getReservationStatus() == ReservationStatus.CANCELLED) {
+            throw new RequestInvalidException("Reservation is already cancelled");
+        }
+
+        if (reservation.getReservationStatus() != ReservationStatus.PENDING
+                && reservation.getReservationStatus() != ReservationStatus.CONFIRMED) {
+            throw new RequestInvalidException("Only reservations with PENDING or CONFIRMED status can be cancelled");
+        }
+
+        reservation.setReservationStatus(ReservationStatus.CANCELLED);
+        Reservation savedReservation = reservationRepository.save(reservation);
+
+        List<ReservationTable> resTables = reservationTableRepository.findByReservationId(id);
+        List<RestaurantTable> tables = resTables.stream()
+                .map(ReservationTable::getTable)
+                .toList();
+
+        return mapToResponseDTO(savedReservation, tables);
+    }
+
     private ReservationResponseDTO mapToResponseDTO(Reservation reservation, List<RestaurantTable> tables) {
         List<ReservationResponseDTO.TableSummaryDTO> tableSummaries = tables.stream()
                 .map(t -> ReservationResponseDTO.TableSummaryDTO.builder()
