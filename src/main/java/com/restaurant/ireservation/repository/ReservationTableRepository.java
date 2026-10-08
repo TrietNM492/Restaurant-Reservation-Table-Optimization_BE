@@ -14,6 +14,8 @@ import java.util.List;
 @Repository
 public interface ReservationTableRepository extends JpaRepository<ReservationTable, Long> {
 
+    boolean existsByTableId(Long tableId);
+
     @Query("SELECT rt FROM ReservationTable rt " +
            "WHERE rt.table.id IN :tableIds " +
            "AND rt.reservation.reservationStatus IN :statuses " +
