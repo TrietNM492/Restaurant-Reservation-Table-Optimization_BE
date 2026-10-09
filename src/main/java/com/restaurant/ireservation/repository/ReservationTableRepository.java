@@ -2,6 +2,7 @@ package com.restaurant.ireservation.repository;
 
 import com.restaurant.ireservation.domain.entity.ReservationTable;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -29,6 +30,9 @@ public interface ReservationTableRepository extends JpaRepository<ReservationTab
         @Param("endTime") Instant endTime
     );
 
+    @EntityGraph(attributePaths = {"table"})
+    List<ReservationTable> findByReservationId(Long reservationId);
+  
     @Query("SELECT rt FROM ReservationTable rt " +
            "WHERE rt.table.id IN :tableIds " +
            "AND rt.reservation.id != :excludedReservationId " +

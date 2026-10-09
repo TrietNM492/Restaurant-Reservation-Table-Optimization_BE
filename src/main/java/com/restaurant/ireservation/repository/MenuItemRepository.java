@@ -1,13 +1,18 @@
 package com.restaurant.ireservation.repository;
 
 import com.restaurant.ireservation.domain.entity.MenuItem;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+
 import com.restaurant.ireservation.domain.enumerations.ItemStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
+
+
+
 
 import java.util.Collection;
 import java.util.Optional;
@@ -56,4 +61,5 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
     @Query("select i from MenuItem i left join fetch i.category left join fetch i.origin " +
             "where i.id = :id and i.statusCode in :statuses")
     Optional<MenuItem> findVisibleById(@Param("id") Long id, @Param("statuses") Collection<ItemStatus> statuses);
+
 }
