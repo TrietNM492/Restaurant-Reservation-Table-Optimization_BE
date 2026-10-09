@@ -1,6 +1,7 @@
 package com.restaurant.ireservation.controller;
 
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
 import com.restaurant.ireservation.service.ReservationService;
 import com.restaurant.ireservation.util.annotation.ApiMessage;
@@ -12,11 +13,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/reservations")
@@ -36,5 +35,65 @@ public class ReservationController {
     ) {
         String username = jwt.getSubject();
         return reservationService.createReservation(requestDTO, username);
+    }
+
+    @PutMapping("/{id}")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
+    @ApiMessage("Update reservation successfully")
+    public ReservationResponseDTO updateReservation(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateReservationRequestDTO requestDTO,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String username = jwt.getSubject();
+        return reservationService.updateReservation(id, requestDTO, username);
+    }
+
+    @PostMapping("/{id}/cancel")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
+    @ApiMessage("Cancel reservation successfully")
+    public ReservationResponseDTO cancelReservation(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String username = jwt.getSubject();
+        return reservationService.cancelReservation(id, username);
+    }
+
+    @PostMapping("/{id}/check-in")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER', 'ROLE_STAFF', 'ROLE_MANAGER', 'ROLE_ADMIN')")
+    @ApiMessage("Check-in reservation successfully")
+    public ReservationResponseDTO checkInReservation(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String username = jwt.getSubject();
+        return reservationService.checkInReservation(id, username);
+    }
+
+    @PostMapping("/{id}/complete")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER', 'ROLE_STAFF', 'ROLE_MANAGER', 'ROLE_ADMIN')")
+    @ApiMessage("Complete reservation successfully")
+    public ReservationResponseDTO completeReservation(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String username = jwt.getSubject();
+        return reservationService.completeReservation(id, username);
+    }
+
+    @GetMapping("/me")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
+    @ApiMessage("Get my reservations successfully")
+    public List<ReservationResponseDTO> getMyReservations(
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String username = jwt.getSubject();
+        return reservationService.getMyReservations(username);
     }
 }
