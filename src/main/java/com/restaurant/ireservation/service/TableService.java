@@ -5,8 +5,10 @@ import com.restaurant.ireservation.domain.entity.TableArea;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.ChangeTableStatusRequest;
 import com.restaurant.ireservation.dto.request.TableRequest;
+import com.restaurant.ireservation.dto.response.AreaFloorPlanResponse;
 import com.restaurant.ireservation.dto.response.TableAreaResponse;
 import com.restaurant.ireservation.dto.response.TableResponse;
+import com.restaurant.ireservation.dto.response.TableStatusSummaryResponse;
 import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
@@ -21,7 +23,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Module: Table Management [3]
@@ -157,6 +161,82 @@ public class TableService {
         }
 
         restaurantTableRepository.delete(existing);
+    }
+
+    @Transactional(readOnly = true)
+    public TableStatusSummaryResponse fetchTableStatusSummary() {
+        long totalTables = restaurantTableRepository.count();
+        long availableTables = restaurantTableRepository.countByStatusCode(TableStatus.AVAILABLE);
+        long reservedTables = restaurantTableRepository.countByStatusCode(TableStatus.RESERVED);
+        long inUseTables = restaurantTableRepository.countByStatusCode(TableStatus.IN_USE);
+        long cleaningTables = restaurantTableRepository.countByStatusCode(TableStatus.CLEANING);
+        long lockedTables = restaurantTableRepository.countByStatusCode(TableStatus.LOCKED);
+
+        Map<TableStatus, Long> statusCounts = new HashMap<>();
+        for (TableStatus status : TableStatus.values()) {
+            statusCounts.put(status, restaurantTableRepository.countByStatusCode(status));
+        }
+
+        List<TableArea> areas = tableAreaRepository.findAll();
+        List<TableStatusSummaryResponse.AreaTableStatusSummary> areaSummaries = areas.stream()
+                .map(area -> {
+                    List<RestaurantTable> tables = restaurantTableRepository.findByAreaId(area.getId());
+                    long areaTotal = tables.size();
+                    long areaAvailable = tables.stream().filter(t -> t.getStatusCode() == TableStatus.AVAILABLE).count();
+                    long areaInUse = tables.stream().filter(t -> t.getStatusCode() == TableStatus.IN_USE).count();
+                    long areaReserved = tables.stream().filter(t -> t.getStatusCode() == TableStatus.RESERVED).count();
+                    long areaCleaning = tables.stream().filter(t -> t.getStatusCode() == TableStatus.CLEANING).count();
+                    long areaLocked = tables.stream().filter(t -> t.getStatusCode() == TableStatus.LOCKED).count();
+
+                    return TableStatusSummaryResponse.AreaTableStatusSummary.builder()
+                            .areaId(area.getId())
+                            .areaCode(area.getCode())
+                            .areaName(area.getName() != null ? area.getName().name() : null)
+                            .totalTables(areaTotal)
+                            .availableTables(areaAvailable)
+                            .inUseTables(areaInUse)
+                            .reservedTables(areaReserved)
+                            .cleaningTables(areaCleaning)
+                            .lockedTables(areaLocked)
+                            .build();
+                })
+                .toList();
+
+        return TableStatusSummaryResponse.builder()
+                .totalTables(totalTables)
+                .availableTables(availableTables)
+                .reservedTables(reservedTables)
+                .inUseTables(inUseTables)
+                .cleaningTables(cleaningTables)
+                .lockedTables(lockedTables)
+                .statusCounts(statusCounts)
+                .areaSummaries(areaSummaries)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AreaFloorPlanResponse> fetchFloorPlan() {
+        List<TableArea> areas = tableAreaRepository.findAll();
+        return areas.stream().map(area -> {
+            List<RestaurantTable> tables = restaurantTableRepository.findByAreaIdOrderByTableNumberAsc(area.getId());
+            List<TableResponse> tableResponses = tables.stream().map(this::toTableResponse).toList();
+            return AreaFloorPlanResponse.builder()
+                    .areaId(area.getId())
+                    .areaCode(area.getCode())
+                    .areaName(area.getName() != null ? area.getName().name() : null)
+                    .areaDescription(area.getDescription())
+                    .tables(tableResponses)
+                    .build();
+        }).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<TableResponse> fetchTablesByArea(Long areaId) {
+        if (!tableAreaRepository.existsById(areaId)) {
+            throw new ResourceNotFoundException("Table area not found with id: " + areaId);
+        }
+        List<RestaurantTable> tables = restaurantTableRepository.findByAreaIdOrderByTableNumberAsc(areaId);
+        return tables.stream().map(this::toTableResponse).toList();
     }
 
     public TableResponse toTableResponse(RestaurantTable table) {

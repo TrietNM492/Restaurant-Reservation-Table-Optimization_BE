@@ -325,4 +325,65 @@ class TableServiceTest {
 
         verify(restaurantTableRepository, never()).delete(any());
     }
+
+    @Test
+    @DisplayName("fetchTableStatusSummary: returns correct statistics")
+    void fetchTableStatusSummary_success() {
+        when(restaurantTableRepository.count()).thenReturn(5L);
+        when(restaurantTableRepository.countByStatusCode(TableStatus.AVAILABLE)).thenReturn(2L);
+        when(restaurantTableRepository.countByStatusCode(TableStatus.RESERVED)).thenReturn(1L);
+        when(restaurantTableRepository.countByStatusCode(TableStatus.IN_USE)).thenReturn(1L);
+        when(restaurantTableRepository.countByStatusCode(TableStatus.CLEANING)).thenReturn(1L);
+        when(restaurantTableRepository.countByStatusCode(TableStatus.LOCKED)).thenReturn(0L);
+
+        when(tableAreaRepository.findAll()).thenReturn(List.of(sampleArea));
+        when(restaurantTableRepository.findByAreaId(1L)).thenReturn(List.of(sampleTable));
+
+        var summary = tableService.fetchTableStatusSummary();
+
+        assertThat(summary).isNotNull();
+        assertThat(summary.getTotalTables()).isEqualTo(5L);
+        assertThat(summary.getAvailableTables()).isEqualTo(2L);
+        assertThat(summary.getAreaSummaries()).hasSize(1);
+        assertThat(summary.getAreaSummaries().get(0).getAreaId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("fetchFloorPlan: returns layout grouped by area")
+    void fetchFloorPlan_success() {
+        when(tableAreaRepository.findAll()).thenReturn(List.of(sampleArea));
+        when(restaurantTableRepository.findByAreaIdOrderByTableNumberAsc(1L)).thenReturn(List.of(sampleTable));
+        when(tableAreaService.toTableAreaResponse(sampleArea))
+                .thenReturn(TableAreaResponse.builder().id(1L).code("INDOOR_MAIN").build());
+
+        var floorPlan = tableService.fetchFloorPlan();
+
+        assertThat(floorPlan).hasSize(1);
+        assertThat(floorPlan.get(0).getAreaCode()).isEqualTo("INDOOR_MAIN");
+        assertThat(floorPlan.get(0).getTables()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("fetchTablesByArea: returns tables belonging to area")
+    void fetchTablesByArea_success() {
+        when(tableAreaRepository.existsById(1L)).thenReturn(true);
+        when(restaurantTableRepository.findByAreaIdOrderByTableNumberAsc(1L)).thenReturn(List.of(sampleTable));
+        when(tableAreaService.toTableAreaResponse(sampleArea))
+                .thenReturn(TableAreaResponse.builder().id(1L).code("INDOOR_MAIN").build());
+
+        var tables = tableService.fetchTablesByArea(1L);
+
+        assertThat(tables).hasSize(1);
+        assertThat(tables.get(0).getTableNumber()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("fetchTablesByArea: throws ResourceNotFoundException when area does not exist")
+    void fetchTablesByArea_notFound_throwsException() {
+        when(tableAreaRepository.existsById(99L)).thenReturn(false);
+
+        assertThatThrownBy(() -> tableService.fetchTablesByArea(99L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Table area not found with id: 99");
+    }
 }

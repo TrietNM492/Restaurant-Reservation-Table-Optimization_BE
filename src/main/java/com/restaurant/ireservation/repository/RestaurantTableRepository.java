@@ -44,4 +44,14 @@ public interface RestaurantTableRepository extends JpaRepository<RestaurantTable
             @Param("statusCode") TableStatus statusCode,
             Pageable pageable
     );
+
+    long countByStatusCode(TableStatus statusCode);
+
+    java.util.List<RestaurantTable> findByAreaId(Long areaId);
+
+    java.util.List<RestaurantTable> findByStatusCode(TableStatus statusCode);
+
+    java.util.List<RestaurantTable> findAllByOrderByTableNumberAsc();
+
+    java.util.List<RestaurantTable> findByAreaIdOrderByTableNumberAsc(Long areaId);
 }
