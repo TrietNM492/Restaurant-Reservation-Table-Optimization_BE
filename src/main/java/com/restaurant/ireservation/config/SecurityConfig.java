@@ -57,7 +57,10 @@ public class SecurityConfig {
                 "/ws/**",
                 "/api/v1/files/**",
                 "/api/v1/payments/vnpay-ipn",
-                "/api/v1/payments/vnpay-return"
+                "/api/v1/payments/vnpay-return",
+                "/v3/api-docs/**",
+                "/swagger-ui/**",
+                "/swagger-ui.html"
         };
         List<String> publishEndpoints = List.of(Constants.VERSION_API + "/home",
                 Constants.VERSION_API + "/auth/register",
@@ -66,7 +69,10 @@ public class SecurityConfig {
                 Constants.VERSION_API + "/account/activate/**",
                 Constants.VERSION_API + "/account/reset-password/init",
                 Constants.VERSION_API + "/account/reset-password/finish",
-                Constants.VERSION_API + "/files/**");
+                Constants.VERSION_API + "/files/**",
+                "/v3/api-docs/**",
+                "/swagger-ui/**",
+                "/swagger-ui.html");
         httpSecurity
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(AbstractHttpConfigurer::disable)
