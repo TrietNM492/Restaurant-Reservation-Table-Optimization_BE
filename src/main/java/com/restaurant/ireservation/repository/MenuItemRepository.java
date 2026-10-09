@@ -9,6 +9,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
+import java.util.Optional;
+
 @Repository
 public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
 
@@ -30,4 +33,27 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
                           @Param("categoryId") Long categoryId,
                           @Param("status") ItemStatus status,
                           Pageable pageable);
+
+    @Query(value = "select i from MenuItem i join fetch i.category c left join fetch i.origin " +
+            "where i.statusCode in :statuses " +
+            "and (:q = '' or lower(i.itemName) like lower(concat('%', :q, '%'))) " +
+            "and (:categoryId is null or c.id = :categoryId) " +
+            "and (:minPrice is null or i.price >= :minPrice) " +
+            "and (:maxPrice is null or i.price <= :maxPrice)",
+            countQuery = "select count(i) from MenuItem i join i.category c " +
+                    "where i.statusCode in :statuses " +
+                    "and (:q = '' or lower(i.itemName) like lower(concat('%', :q, '%'))) " +
+                    "and (:categoryId is null or c.id = :categoryId) " +
+                    "and (:minPrice is null or i.price >= :minPrice) " +
+                    "and (:maxPrice is null or i.price <= :maxPrice)")
+    Page<MenuItem> browse(@Param("statuses") Collection<ItemStatus> statuses,
+                          @Param("q") String q,
+                          @Param("categoryId") Long categoryId,
+                          @Param("minPrice") Double minPrice,
+                          @Param("maxPrice") Double maxPrice,
+                          Pageable pageable);
+
+    @Query("select i from MenuItem i left join fetch i.category left join fetch i.origin " +
+            "where i.id = :id and i.statusCode in :statuses")
+    Optional<MenuItem> findVisibleById(@Param("id") Long id, @Param("statuses") Collection<ItemStatus> statuses);
 }
