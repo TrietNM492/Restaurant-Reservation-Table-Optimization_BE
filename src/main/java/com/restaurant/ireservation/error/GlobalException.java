@@ -103,8 +103,7 @@ public class GlobalException {
         res.setMessage(e.getMessage());
         res.setError("Redundant data");
         return ResponseEntity.status(statusCode).body(res);
-        
-
+    }
 
     @ExceptionHandler(value = {AccessDeniedException.class})
     public ResponseEntity<RestResponse<?>> handleAccessDeniedException(AccessDeniedException e) {

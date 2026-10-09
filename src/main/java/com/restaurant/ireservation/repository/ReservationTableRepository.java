@@ -47,7 +47,6 @@ public interface ReservationTableRepository extends JpaRepository<ReservationTab
         @Param("endTime") Instant endTime
     );
 
-    List<ReservationTable> findByReservationId(Long reservationId);
 
     @Modifying
     @Query("DELETE FROM ReservationTable rt WHERE rt.reservation.id = :reservationId")
