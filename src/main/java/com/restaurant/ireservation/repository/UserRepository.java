@@ -36,6 +36,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     boolean existsByEmailAndIdNot(String email, Long id);
 
+    boolean existsByRole_Id(Long roleId);
+
     @Query(value = "select u.refreshToken from User u where u.id = :userId")
     String getRefreshTokenById(@Param("userId") Long userId);
 

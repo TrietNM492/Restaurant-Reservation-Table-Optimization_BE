@@ -56,13 +56,17 @@ public class DatabaseInitializer implements CommandLineRunner {
                             PermissionMethod.GET));
             permissionList.add(new Permission("GET_ALL_PERMISSION",
                     PermissionMethod.GET));
-
+            permissionList.add(new Permission("GET_ROLE", PermissionMethod.GET));
+            permissionList.add(new Permission("GET_ALL_ROLE", PermissionMethod.GET));
             permissionList.add(
                     new Permission("CREATE_ROLE",
                             PermissionMethod.POST));
             permissionList.add(
                     new Permission("UPDATE_ROLE",
                             PermissionMethod.PUT));
+            permissionList.add(new Permission("UPDATE_ROLE_PERMISSIONS", PermissionMethod.PUT));
+            permissionList.add(new Permission("DELETE_ROLE", PermissionMethod.DELETE));
+            this.permissionRepository.saveAll(permissionList);
         }
 
         if (roleCnt == 0) {
@@ -70,11 +74,13 @@ public class DatabaseInitializer implements CommandLineRunner {
             var roleAdmin = new Role();
             var roles = new ArrayList<Role>();
             roleAdmin.setName(AuthoritiesConstants.ADMIN);
+            roleAdmin.setCode("AD490");
             roleAdmin.setDescription("SUPER ADMIN HAS FULL PERMISSIONS");
             roleAdmin.setPermissions(permissions);
             roleAdmin.setCreatedBy("SYSTEM");
             var roleUser = new Role();
             roleUser.setName(AuthoritiesConstants.CUSTOMER);
+            roleUser.setCode("CUS101");
             roleUser.setDescription("CUSTOMER USE APP");
             roleUser.setPermissions(permissions);
             roleUser.setCreatedBy("SYSTEM");
@@ -89,7 +95,7 @@ public class DatabaseInitializer implements CommandLineRunner {
             admin.setGender(Gender.MALE);
             admin.setPhone("0912312312");
             admin.setEmail("CasCake@gmail.com".toLowerCase());
-            var roleAdmin = this.roleRepository.findOneByName(AuthoritiesConstants.ADMIN)
+            var roleAdmin = this.roleRepository.findOneByNameIgnoreCase(AuthoritiesConstants.ADMIN)
                     .orElseThrow(() -> new ResourceNotFoundException("Role not found!"));
             admin.setRole(roleAdmin);
             admin.setPassword(this.passwordEncoder.encode("123123"));
@@ -112,4 +118,3 @@ public class DatabaseInitializer implements CommandLineRunner {
         }
     }
 }
-

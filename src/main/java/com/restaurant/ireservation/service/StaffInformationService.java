@@ -18,6 +18,7 @@ import lombok.experimental.FieldDefaults;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
 import java.time.LocalDate;
@@ -126,6 +127,7 @@ public class StaffInformationService {
         return baseCode + (max + 1);
     }
 
+    @Transactional
     public StaffInformationResponse createStaff(StaffInformationRequest request) {
         User newStaff = userService.createStaff(request);
         StaffInformation information = new StaffInformation();
@@ -164,6 +166,7 @@ public class StaffInformationService {
         return toStaffInformationResponse(staffInformation, userStaff);
     }
 
+    @Transactional
     public StaffInformationResponse updateStaff(UpdateUserStaffRequest request) {
         StaffInformation staffInformation =staffInformationRepository.findById(request.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Staff Not Found!"));
@@ -174,6 +177,7 @@ public class StaffInformationService {
 
     }
 
+    @Transactional
     public ChangeUserStatus toggleChangeStaffStatus(ChangeUserStatus request) {
         StaffInformation staffInformation = staffInformationRepository.findById(request.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Staff Not Found!"));
