@@ -3,6 +3,7 @@ package com.restaurant.ireservation.error;
 import com.restaurant.ireservation.util.RestResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -92,6 +93,7 @@ public class GlobalException {
         return ResponseEntity.status(statusCode).body(res);
     }
 
+
     @ExceptionHandler(value = {DuplicationException.class})
     public ResponseEntity<RestResponse<?>> handleDuplicationException(DuplicationException e) {
         int statusCode = HttpStatus.BAD_REQUEST.value();
@@ -100,6 +102,18 @@ public class GlobalException {
         res.setStatusCode(statusCode);
         res.setMessage(e.getMessage());
         res.setError("Redundant data");
+        return ResponseEntity.status(statusCode).body(res);
+        
+
+
+    @ExceptionHandler(value = {AccessDeniedException.class})
+    public ResponseEntity<RestResponse<?>> handleAccessDeniedException(AccessDeniedException e) {
+        int statusCode = HttpStatus.FORBIDDEN.value();
+        var res = new RestResponse<>();
+        res.setStatusCode(statusCode);
+        res.setMessage(e.getMessage());
+        res.setError("Forbidden");
+        res.setTimestamp(LocalDateTime.now());
 
         return ResponseEntity.status(statusCode).body(res);
     }

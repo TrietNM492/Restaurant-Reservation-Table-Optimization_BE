@@ -6,6 +6,10 @@ import jakarta.validation.constraints.Size;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
+/**
+ * Module: Table Area Management [6]
+ * Thực hiện lúc: 2026-10-08 13:50:00 (GMT+7)
+ */
 @Entity
 @Table(name = "table_areas")
 @Setter
@@ -16,8 +20,8 @@ import lombok.experimental.FieldDefaults;
 @Builder
 public class TableArea extends BaseEntity {
 
-    @Column(unique = true)
-    @Size(min = 50)
+    @Column(unique = true, length = 50)
+    @Size(max = 50)
     String code;
 
     @Column(length = 500)
