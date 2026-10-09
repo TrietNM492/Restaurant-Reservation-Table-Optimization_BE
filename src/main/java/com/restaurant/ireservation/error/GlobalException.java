@@ -3,6 +3,7 @@ package com.restaurant.ireservation.error;
 import com.restaurant.ireservation.util.RestResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -79,6 +80,17 @@ public class GlobalException {
                 .toList();
         res.setMessage(errors.size() == 1 ? errors.getFirst() : errors);
         res.setError("Validation Failed");
+        res.setTimestamp(LocalDateTime.now());
+        return ResponseEntity.status(statusCode).body(res);
+    }
+
+    @ExceptionHandler(value = {AccessDeniedException.class})
+    public ResponseEntity<RestResponse<?>> handleAccessDeniedException(AccessDeniedException e) {
+        int statusCode = HttpStatus.FORBIDDEN.value();
+        var res = new RestResponse<>();
+        res.setStatusCode(statusCode);
+        res.setMessage(e.getMessage());
+        res.setError("Forbidden");
         res.setTimestamp(LocalDateTime.now());
         return ResponseEntity.status(statusCode).body(res);
     }
