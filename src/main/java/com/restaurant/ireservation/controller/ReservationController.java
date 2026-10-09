@@ -15,6 +15,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/v1/reservations")
 @RequiredArgsConstructor
@@ -82,5 +84,16 @@ public class ReservationController {
     ) {
         String username = jwt.getSubject();
         return reservationService.completeReservation(id, username);
+    }
+
+    @GetMapping("/me")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
+    @ApiMessage("Get my reservations successfully")
+    public List<ReservationResponseDTO> getMyReservations(
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String username = jwt.getSubject();
+        return reservationService.getMyReservations(username);
     }
 }

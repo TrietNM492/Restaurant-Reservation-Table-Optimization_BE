@@ -41,6 +41,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -564,5 +565,63 @@ class ReservationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Bad Request"))
                 .andExpect(jsonPath("$.message").value("Only reservations with IN_PROGRESS status can be completed"));
+    }
+
+    // ==========================================
+    // Phase 5: Customer Reservation History Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("P5-TC-01: Valid request returns HTTP 200 and list of customer reservations")
+    void getMyReservations_authenticatedCustomer_returns200AndList() throws Exception {
+        ReservationResponseDTO dto1 = ReservationResponseDTO.builder()
+                .id(1L)
+                .reservationNo("RES-05102026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .createdBy("test_customer")
+                .build();
+
+        ReservationResponseDTO dto2 = ReservationResponseDTO.builder()
+                .id(2L)
+                .reservationNo("RES-05102026-002")
+                .partySize(PartySize.MEDIUM)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .createdBy("test_customer")
+                .build();
+
+        when(reservationService.getMyReservations("test_customer")).thenReturn(List.of(dto1, dto2));
+
+        mockMvc.perform(get("/api/v1/reservations/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].id").value(1))
+                .andExpect(jsonPath("$[0].reservationNo").value("RES-05102026-001"))
+                .andExpect(jsonPath("$[1].id").value(2))
+                .andExpect(jsonPath("$[1].reservationNo").value("RES-05102026-002"));
+    }
+
+    @Test
+    @DisplayName("P5-TC-02: Customer with no reservations returns HTTP 200 and empty list")
+    void getMyReservations_noReservations_returns200AndEmptyList() throws Exception {
+        when(reservationService.getMyReservations("test_customer")).thenReturn(Collections.emptyList());
+
+        mockMvc.perform(get("/api/v1/reservations/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("P5-TC-03: Unauthenticated or access denied maps to HTTP 403 Forbidden")
+    void getMyReservations_accessDenied_returns403() throws Exception {
+        when(reservationService.getMyReservations("test_customer"))
+                .thenThrow(new AccessDeniedException("User not authenticated"));
+
+        mockMvc.perform(get("/api/v1/reservations/me"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"))
+                .andExpect(jsonPath("$.message").value("User not authenticated"));
     }
 }

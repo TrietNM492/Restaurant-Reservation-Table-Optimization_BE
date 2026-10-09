@@ -1942,4 +1942,128 @@ class ReservationServiceTest {
         verify(reservationTableRepository, never()).delete(any());
         verify(reservationTableRepository, never()).deleteAll(any());
     }
+
+    // ==========================================
+    // Phase 5: Customer Reservation History Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("P5-TC-01: Successfully retrieve customer reservation history")
+    void getMyReservations_success_returnsCustomerReservations() {
+        Reservation res1 = Reservation.builder()
+                .reservationNo("RES-05102026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .note("Near window")
+                .build();
+        res1.setId(1L);
+        res1.setCreatedBy("customer1");
+
+        Reservation res2 = Reservation.builder()
+                .reservationNo("RES-05102026-002")
+                .partySize(PartySize.MEDIUM)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(startTime.plus(Duration.ofDays(1)))
+                .endTime(endTime.plus(Duration.ofDays(1)))
+                .build();
+        res2.setId(2L);
+        res2.setCreatedBy("customer1");
+
+        ReservationTable rt1 = ReservationTable.builder().reservation(res1).table(table1).build();
+        ReservationTable rt2 = ReservationTable.builder().reservation(res2).table(table2).build();
+
+        when(reservationRepository.findByCreatedBy("customer1")).thenReturn(List.of(res1, res2));
+        when(reservationTableRepository.findByReservationId(1L)).thenReturn(List.of(rt1));
+        when(reservationTableRepository.findByReservationId(2L)).thenReturn(List.of(rt2));
+
+        List<ReservationResponseDTO> result = reservationService.getMyReservations("customer1");
+
+        assertNotNull(result);
+        assertEquals(2, result.size());
+
+        ReservationResponseDTO dto1 = result.get(0);
+        assertEquals(1L, dto1.getId());
+        assertEquals("RES-05102026-001", dto1.getReservationNo());
+        assertEquals(ReservationStatus.PENDING, dto1.getReservationStatus());
+        assertEquals("customer1", dto1.getCreatedBy());
+        assertEquals(1, dto1.getTables().size());
+        assertEquals(10, dto1.getTables().get(0).getTableNumber());
+
+        ReservationResponseDTO dto2 = result.get(1);
+        assertEquals(2L, dto2.getId());
+        assertEquals("RES-05102026-002", dto2.getReservationNo());
+        assertEquals(ReservationStatus.CONFIRMED, dto2.getReservationStatus());
+        assertEquals("customer1", dto2.getCreatedBy());
+        assertEquals(1, dto2.getTables().size());
+        assertEquals(11, dto2.getTables().get(0).getTableNumber());
+
+        verify(reservationRepository).findByCreatedBy("customer1");
+    }
+
+    @Test
+    @DisplayName("P5-TC-02: Isolated - queries only reservations created by authenticated customer")
+    void getMyReservations_isolated_onlyReturnsTargetCustomerReservations() {
+        when(reservationRepository.findByCreatedBy("customer_alice")).thenReturn(Collections.emptyList());
+
+        List<ReservationResponseDTO> result = reservationService.getMyReservations("customer_alice");
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+        verify(reservationRepository).findByCreatedBy("customer_alice");
+        verify(reservationRepository, never()).findByCreatedBy("customer_bob");
+    }
+
+    @Test
+    @DisplayName("P5-TC-03: Customer with no reservations receives empty list")
+    void getMyReservations_noReservations_returnsEmptyList() {
+        when(reservationRepository.findByCreatedBy("customer_new")).thenReturn(Collections.emptyList());
+
+        List<ReservationResponseDTO> result = reservationService.getMyReservations("customer_new");
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+        verify(reservationRepository).findByCreatedBy("customer_new");
+        verify(reservationTableRepository, never()).findByReservationId(anyLong());
+    }
+
+    @Test
+    @DisplayName("P5-TC-04: Multiple reservations with various statuses are all included in history")
+    void getMyReservations_multipleStatuses_allIncluded() {
+        Reservation r1 = Reservation.builder().reservationNo("R-1").reservationStatus(ReservationStatus.PENDING).build();
+        r1.setId(1L);
+        r1.setCreatedBy("customer1");
+        Reservation r2 = Reservation.builder().reservationNo("R-2").reservationStatus(ReservationStatus.CONFIRMED).build();
+        r2.setId(2L);
+        r2.setCreatedBy("customer1");
+        Reservation r3 = Reservation.builder().reservationNo("R-3").reservationStatus(ReservationStatus.CANCELLED).build();
+        r3.setId(3L);
+        r3.setCreatedBy("customer1");
+        Reservation r4 = Reservation.builder().reservationNo("R-4").reservationStatus(ReservationStatus.COMPLETED).build();
+        r4.setId(4L);
+        r4.setCreatedBy("customer1");
+
+        when(reservationRepository.findByCreatedBy("customer1")).thenReturn(List.of(r1, r2, r3, r4));
+        when(reservationTableRepository.findByReservationId(anyLong())).thenReturn(Collections.emptyList());
+
+        List<ReservationResponseDTO> result = reservationService.getMyReservations("customer1");
+
+        assertNotNull(result);
+        assertEquals(4, result.size());
+        assertEquals(ReservationStatus.PENDING, result.get(0).getReservationStatus());
+        assertEquals(ReservationStatus.CONFIRMED, result.get(1).getReservationStatus());
+        assertEquals(ReservationStatus.CANCELLED, result.get(2).getReservationStatus());
+        assertEquals(ReservationStatus.COMPLETED, result.get(3).getReservationStatus());
+    }
+
+    @Test
+    @DisplayName("P5-TC-05: Blank or null username throws AccessDeniedException")
+    void getMyReservations_unauthenticated_nullOrBlankUsername_throwsAccessDeniedException() {
+        assertThrows(AccessDeniedException.class, () -> reservationService.getMyReservations(null));
+        assertThrows(AccessDeniedException.class, () -> reservationService.getMyReservations("   "));
+        verify(reservationRepository, never()).findByCreatedBy(anyString());
+    }
 }

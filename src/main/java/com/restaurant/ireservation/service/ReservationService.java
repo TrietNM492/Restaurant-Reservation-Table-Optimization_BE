@@ -312,6 +312,23 @@ public class ReservationService {
         return mapToResponseDTO(savedReservation, tables);
     }
 
+    @Transactional(readOnly = true)
+    public List<ReservationResponseDTO> getMyReservations(String username) {
+        if (username == null || username.isBlank()) {
+            throw new AccessDeniedException("User not authenticated");
+        }
+        List<Reservation> reservations = reservationRepository.findByCreatedBy(username);
+        return reservations.stream()
+                .map(r -> {
+                    List<ReservationTable> resTables = reservationTableRepository.findByReservationId(r.getId());
+                    List<RestaurantTable> tables = resTables.stream()
+                            .map(ReservationTable::getTable)
+                            .toList();
+                    return mapToResponseDTO(r, tables);
+                })
+                .toList();
+    }
+
     private ReservationResponseDTO mapToResponseDTO(Reservation reservation, List<RestaurantTable> tables) {
         List<ReservationResponseDTO.TableSummaryDTO> tableSummaries = tables.stream()
                 .map(t -> ReservationResponseDTO.TableSummaryDTO.builder()
