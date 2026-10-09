@@ -441,4 +441,128 @@ class ReservationControllerTest {
                 .andExpect(jsonPath("$.error").value("Bad Request"))
                 .andExpect(jsonPath("$.message").value("Reservation is already cancelled"));
     }
+
+    // ==========================================
+    // Phase 4: Check-in Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("P4-TC-01: Valid check-in request returns HTTP 200 OK")
+    void checkInReservation_validRequest_returns200() throws Exception {
+        ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
+                .id(1L)
+                .reservationNo("RES-05102026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.IN_PROGRESS)
+                .createdBy("test_customer")
+                .build();
+
+        when(reservationService.checkInReservation(eq(1L), eq("test_customer")))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(post("/api/v1/reservations/1/check-in"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.reservationStatus").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.reservationNo").value("RES-05102026-001"));
+    }
+
+    @Test
+    @DisplayName("P4-TC-02: Non-existent reservation for check-in maps to HTTP 404 Not Found")
+    void checkInReservation_notFound_returns404() throws Exception {
+        when(reservationService.checkInReservation(eq(999L), eq("test_customer")))
+                .thenThrow(new ResourceNotFoundException("Reservation not found with id: 999"));
+
+        mockMvc.perform(post("/api/v1/reservations/999/check-in"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Reservation not found with id: 999"));
+    }
+
+    @Test
+    @DisplayName("P4-TC-03: Ownership mismatch for check-in maps to HTTP 403 Forbidden")
+    void checkInReservation_ownershipMismatch_returns403() throws Exception {
+        when(reservationService.checkInReservation(eq(1L), eq("test_customer")))
+                .thenThrow(new AccessDeniedException("You are not allowed to check in this reservation"));
+
+        mockMvc.perform(post("/api/v1/reservations/1/check-in"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"))
+                .andExpect(jsonPath("$.message").value("You are not allowed to check in this reservation"));
+    }
+
+    @Test
+    @DisplayName("P4-TC-04: Invalid status for check-in maps to HTTP 400 Bad Request")
+    void checkInReservation_invalidStatus_returns400() throws Exception {
+        when(reservationService.checkInReservation(eq(1L), eq("test_customer")))
+                .thenThrow(new RequestInvalidException("Only reservations with PENDING or CONFIRMED status can be checked in"));
+
+        mockMvc.perform(post("/api/v1/reservations/1/check-in"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Only reservations with PENDING or CONFIRMED status can be checked in"));
+    }
+
+    // ==========================================
+    // Phase 4: Complete Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("P4-TC-05: Valid complete request returns HTTP 200 OK")
+    void completeReservation_validRequest_returns200() throws Exception {
+        ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
+                .id(1L)
+                .reservationNo("RES-05102026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.COMPLETED)
+                .createdBy("test_customer")
+                .build();
+
+        when(reservationService.completeReservation(eq(1L), eq("test_customer")))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(post("/api/v1/reservations/1/complete"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.reservationStatus").value("COMPLETED"))
+                .andExpect(jsonPath("$.reservationNo").value("RES-05102026-001"));
+    }
+
+    @Test
+    @DisplayName("P4-TC-06: Non-existent reservation for complete maps to HTTP 404 Not Found")
+    void completeReservation_notFound_returns404() throws Exception {
+        when(reservationService.completeReservation(eq(999L), eq("test_customer")))
+                .thenThrow(new ResourceNotFoundException("Reservation not found with id: 999"));
+
+        mockMvc.perform(post("/api/v1/reservations/999/complete"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Reservation not found with id: 999"));
+    }
+
+    @Test
+    @DisplayName("P4-TC-07: Ownership mismatch for complete maps to HTTP 403 Forbidden")
+    void completeReservation_ownershipMismatch_returns403() throws Exception {
+        when(reservationService.completeReservation(eq(1L), eq("test_customer")))
+                .thenThrow(new AccessDeniedException("You are not allowed to complete this reservation"));
+
+        mockMvc.perform(post("/api/v1/reservations/1/complete"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"))
+                .andExpect(jsonPath("$.message").value("You are not allowed to complete this reservation"));
+    }
+
+    @Test
+    @DisplayName("P4-TC-08: Invalid status for complete maps to HTTP 400 Bad Request")
+    void completeReservation_invalidStatus_returns400() throws Exception {
+        when(reservationService.completeReservation(eq(1L), eq("test_customer")))
+                .thenThrow(new RequestInvalidException("Only reservations with IN_PROGRESS status can be completed"));
+
+        mockMvc.perform(post("/api/v1/reservations/1/complete"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Only reservations with IN_PROGRESS status can be completed"));
+    }
 }

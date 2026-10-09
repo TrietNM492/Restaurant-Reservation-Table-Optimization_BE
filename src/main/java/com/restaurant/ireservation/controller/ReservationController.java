@@ -59,4 +59,28 @@ public class ReservationController {
         String username = jwt.getSubject();
         return reservationService.cancelReservation(id, username);
     }
+
+    @PostMapping("/{id}/check-in")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER', 'ROLE_STAFF', 'ROLE_MANAGER', 'ROLE_ADMIN')")
+    @ApiMessage("Check-in reservation successfully")
+    public ReservationResponseDTO checkInReservation(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String username = jwt.getSubject();
+        return reservationService.checkInReservation(id, username);
+    }
+
+    @PostMapping("/{id}/complete")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER', 'ROLE_STAFF', 'ROLE_MANAGER', 'ROLE_ADMIN')")
+    @ApiMessage("Complete reservation successfully")
+    public ReservationResponseDTO completeReservation(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String username = jwt.getSubject();
+        return reservationService.completeReservation(id, username);
+    }
 }

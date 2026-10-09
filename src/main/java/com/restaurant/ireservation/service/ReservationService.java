@@ -12,7 +12,10 @@ import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
 import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
+import com.restaurant.ireservation.security.AuthoritiesConstants;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.restaurant.ireservation.repository.ReservationRepository;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
 import com.restaurant.ireservation.repository.RestaurantTableRepository;
@@ -222,6 +225,83 @@ public class ReservationService {
         }
 
         reservation.setReservationStatus(ReservationStatus.CANCELLED);
+        Reservation savedReservation = reservationRepository.save(reservation);
+
+        List<ReservationTable> resTables = reservationTableRepository.findByReservationId(id);
+        List<RestaurantTable> tables = resTables.stream()
+                .map(ReservationTable::getTable)
+                .toList();
+
+        return mapToResponseDTO(savedReservation, tables);
+    }
+
+    @Transactional
+    public ReservationResponseDTO checkInReservation(Long id, String username) {
+        Reservation reservation = reservationRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        boolean isStaffOrAdmin = authentication != null && authentication.getAuthorities() != null
+                && authentication.getAuthorities().stream().anyMatch(a ->
+                        AuthoritiesConstants.STAFF.equals(a.getAuthority())
+                        || AuthoritiesConstants.MANAGER.equals(a.getAuthority())
+                        || AuthoritiesConstants.ADMIN.equals(a.getAuthority())
+                );
+
+        if (!isStaffOrAdmin) {
+            if (reservation.getCreatedBy() == null || !reservation.getCreatedBy().equals(username)) {
+                throw new AccessDeniedException("You are not allowed to check in this reservation");
+            }
+        }
+
+        if (reservation.getReservationStatus() == ReservationStatus.IN_PROGRESS) {
+            throw new RequestInvalidException("Reservation is already checked in");
+        }
+
+        if (reservation.getReservationStatus() != ReservationStatus.PENDING
+                && reservation.getReservationStatus() != ReservationStatus.CONFIRMED) {
+            throw new RequestInvalidException("Only reservations with PENDING or CONFIRMED status can be checked in");
+        }
+
+        reservation.setReservationStatus(ReservationStatus.IN_PROGRESS);
+        Reservation savedReservation = reservationRepository.save(reservation);
+
+        List<ReservationTable> resTables = reservationTableRepository.findByReservationId(id);
+        List<RestaurantTable> tables = resTables.stream()
+                .map(ReservationTable::getTable)
+                .toList();
+
+        return mapToResponseDTO(savedReservation, tables);
+    }
+
+    @Transactional
+    public ReservationResponseDTO completeReservation(Long id, String username) {
+        Reservation reservation = reservationRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        boolean isStaffOrAdmin = authentication != null && authentication.getAuthorities() != null
+                && authentication.getAuthorities().stream().anyMatch(a ->
+                        AuthoritiesConstants.STAFF.equals(a.getAuthority())
+                        || AuthoritiesConstants.MANAGER.equals(a.getAuthority())
+                        || AuthoritiesConstants.ADMIN.equals(a.getAuthority())
+                );
+
+        if (!isStaffOrAdmin) {
+            if (reservation.getCreatedBy() == null || !reservation.getCreatedBy().equals(username)) {
+                throw new AccessDeniedException("You are not allowed to complete this reservation");
+            }
+        }
+
+        if (reservation.getReservationStatus() == ReservationStatus.COMPLETED) {
+            throw new RequestInvalidException("Reservation is already completed");
+        }
+
+        if (reservation.getReservationStatus() != ReservationStatus.IN_PROGRESS) {
+            throw new RequestInvalidException("Only reservations with IN_PROGRESS status can be completed");
+        }
+
+        reservation.setReservationStatus(ReservationStatus.COMPLETED);
         Reservation savedReservation = reservationRepository.save(reservation);
 
         List<ReservationTable> resTables = reservationTableRepository.findByReservationId(id);
