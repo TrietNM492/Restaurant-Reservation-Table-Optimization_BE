@@ -8,17 +8,14 @@ import com.restaurant.ireservation.domain.enumerations.Gender;
 import com.restaurant.ireservation.dto.request.RegisterAccount;
 import com.restaurant.ireservation.dto.request.StaffInformationRequest;
 import com.restaurant.ireservation.dto.request.UpdateUserStaffRequest;
-import com.restaurant.ireservation.dto.response.StaffInformationResponse;
 import com.restaurant.ireservation.dto.response.UserSecurityRes;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.error.UserAlreadyUsedException;
 import com.restaurant.ireservation.repository.RoleRepository;
-import com.restaurant.ireservation.repository.StaffInformationRepository;
 import com.restaurant.ireservation.repository.UserRepository;
 import com.restaurant.ireservation.security.AuthoritiesConstants;
 import com.restaurant.ireservation.security.JwtService;
 import com.restaurant.ireservation.security.PasswordGenerator;
-import com.restaurant.ireservation.security.SessionManager;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -70,7 +67,7 @@ public class UserService {
 
     public UserSecurityRes createUser(RegisterAccount registerAccount) {
         String encryptedPassword = passwordEncoder.encode(registerAccount.getPassword());
-        Role role = roleRepository.findOneByName(AuthoritiesConstants.CUSTOMER)
+        Role role = roleRepository.findOneByNameIgnoreCase(AuthoritiesConstants.CUSTOMER)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found!"));
         User newUser = User.builder()
                 .username(registerAccount.getUsername().toLowerCase())
@@ -104,7 +101,7 @@ public class UserService {
     }
 
     public User createStaff(StaffInformationRequest request) {
-        Role role = roleRepository.findOneByName(request.getRole().toUpperCase())
+        Role role = roleRepository.findOneByNameIgnoreCase(request.getRole().toUpperCase())
                 .orElseThrow(() -> new ResourceNotFoundException("Not found this role!"));
         String tempPassword = PasswordGenerator.generate(12);
         if (userRepository.existsByEmail(request.getEmail())) {
@@ -132,7 +129,7 @@ public class UserService {
         if (userRepository.existsByEmailAndIdNot(request.getEmail(), request.getId())) {
             throw new UserAlreadyUsedException("Email is Exist!");
         }
-        Role role = roleRepository.findOneByName(request.getRole().toUpperCase())
+        Role role = roleRepository.findOneByNameIgnoreCase(request.getRole().toUpperCase())
                 .orElseThrow(() -> new ResourceNotFoundException("Not found this role!"));
 
         userStaff.setEmail(request.getEmail());

@@ -66,7 +66,8 @@ public class SecurityConfig {
                 Constants.VERSION_API + "/account/activate/**",
                 Constants.VERSION_API + "/account/reset-password/init",
                 Constants.VERSION_API + "/account/reset-password/finish",
-                Constants.VERSION_API + "/files/**");
+                Constants.VERSION_API + "/files/**",
+                Constants.VERSION_API + "/menus/**");
         httpSecurity
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(AbstractHttpConfigurer::disable)
@@ -75,6 +76,7 @@ public class SecurityConfig {
                                 auth
                                         // guest
                                         .requestMatchers(HttpMethod.GET, Constants.VERSION_API + "/home").permitAll()
+                                        .requestMatchers(HttpMethod.GET, Constants.VERSION_API + "/menus/**").permitAll()
                                         .requestMatchers(HttpMethod.POST, Constants.VERSION_API + "/auth/register")
                                         .permitAll()
                                         .requestMatchers(HttpMethod.POST, Constants.VERSION_API + "/auth/login").permitAll()
