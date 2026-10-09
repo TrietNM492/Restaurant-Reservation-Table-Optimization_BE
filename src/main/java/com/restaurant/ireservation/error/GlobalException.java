@@ -10,7 +10,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalException {
@@ -75,14 +77,34 @@ public class GlobalException {
         int statusCode = HttpStatus.BAD_REQUEST.value();
         var res = new RestResponse<>();
         res.setStatusCode(statusCode);
-        List<String> errors = e.getBindingResult().getFieldErrors().stream()
-                .map(FieldError::getDefaultMessage)
-                .toList();
-        res.setMessage(errors.size() == 1 ? errors.getFirst() : errors);
+//        List<String> errors = e.getBindingResult().getFieldErrors().stream()
+//                .map(FieldError::getDefaultMessage)
+//                .toList();
+        Map<String, String> details = new LinkedHashMap<String, String>();
+        for (var error : e.getFieldErrors()) {
+            var key = error.getField();
+            var value = error.getDefaultMessage();
+            details.put(key, value);
+        }
+//        res.setMessage(errors.size() == 1 ? errors.getFirst() : errors);
+        res.setMessage(details);
         res.setError("Validation Failed");
         res.setTimestamp(LocalDateTime.now());
         return ResponseEntity.status(statusCode).body(res);
     }
+
+
+    @ExceptionHandler(value = {DuplicationException.class})
+    public ResponseEntity<RestResponse<?>> handleDuplicationException(DuplicationException e) {
+        int statusCode = HttpStatus.BAD_REQUEST.value();
+        var res = new RestResponse<>();
+        res.setTimestamp(LocalDateTime.now());
+        res.setStatusCode(statusCode);
+        res.setMessage(e.getMessage());
+        res.setError("Redundant data");
+        return ResponseEntity.status(statusCode).body(res);
+        
+
 
     @ExceptionHandler(value = {AccessDeniedException.class})
     public ResponseEntity<RestResponse<?>> handleAccessDeniedException(AccessDeniedException e) {
@@ -92,6 +114,7 @@ public class GlobalException {
         res.setMessage(e.getMessage());
         res.setError("Forbidden");
         res.setTimestamp(LocalDateTime.now());
+
         return ResponseEntity.status(statusCode).body(res);
     }
 }
