@@ -17,6 +17,16 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
 
+  mongodb:
+    image: mongo:8
+    container_name: ij-restaurant-mongodb
+    ports:
+      - "27017:27017"
+
+    volumes:
+      - mongodb_data:/data/mongodb
+
+
   redis:
     image: redis:8
     container_name: ij-restaurant_redis
@@ -30,3 +40,4 @@ services:
 volumes:
   mysql_data:
   redis_data:
+  mongodb_data:
