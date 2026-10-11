@@ -1,5 +1,9 @@
 package com.restaurant.ireservation.config;
 
+import com.restaurant.ireservation.domain.document.OccupancyStatistic;
+import com.restaurant.ireservation.domain.document.PreparationTimeLog;
+import com.restaurant.ireservation.domain.document.ReservationForecast;
+import com.restaurant.ireservation.domain.document.WaitingTimeLog;
 import com.restaurant.ireservation.domain.entity.Permission;
 import com.restaurant.ireservation.domain.entity.Role;
 import com.restaurant.ireservation.domain.entity.StaffInformation;
@@ -9,9 +13,13 @@ import com.restaurant.ireservation.domain.enumerations.Gender;
 import com.restaurant.ireservation.domain.enumerations.PermissionMethod;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.PermissionRepository;
+import com.restaurant.ireservation.repository.OccupancyStatisticRepository;
+import com.restaurant.ireservation.repository.PreparationTimeLogRepository;
+import com.restaurant.ireservation.repository.ReservationForecastRepository;
 import com.restaurant.ireservation.repository.RoleRepository;
 import com.restaurant.ireservation.repository.StaffInformationRepository;
 import com.restaurant.ireservation.repository.UserRepository;
+import com.restaurant.ireservation.repository.WaitingTimeLogRepository;
 import com.restaurant.ireservation.security.AuthoritiesConstants;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +29,9 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 
 @Component
@@ -35,6 +45,10 @@ public class DatabaseInitializer implements CommandLineRunner {
     final PermissionRepository permissionRepository;
     final RoleRepository roleRepository;
     final PasswordEncoder passwordEncoder;
+    final WaitingTimeLogRepository waitingTimeLogRepository;
+    final PreparationTimeLogRepository preparationTimeLogRepository;
+    final OccupancyStatisticRepository occupancyStatisticRepository;
+    final ReservationForecastRepository reservationForecastRepository;
 
     @Override
     public void run(String... args) throws Exception {
@@ -115,6 +129,58 @@ public class DatabaseInitializer implements CommandLineRunner {
             System.out.println(">>> SKIP PROCESSING INITIALIZE <<<");
         } else {
             System.out.println(">>> INIT DATABASE SUCCESSFULLY");
+        }
+
+        initializeMongoData();
+    }
+
+    private void initializeMongoData() {
+        Instant now = Instant.now();
+
+        if (waitingTimeLogRepository.count() == 0) {
+            waitingTimeLogRepository.save(WaitingTimeLog.builder()
+                    .id("sample-waiting-time-001")
+                    .reservationId(1L)
+                    .estimatedWaitMinutes(15)
+                    .actualWaitMinutes(18)
+                    .createAt(now.minusSeconds(86_400))
+                    .updateAt(now.minusSeconds(86_400))
+                    .build());
+        }
+
+        if (preparationTimeLogRepository.count() == 0) {
+            preparationTimeLogRepository.save(PreparationTimeLog.builder()
+                    .id("sample-preparation-time-001")
+                    .menuItemId(1L)
+                    .estimateMinutes(20)
+                    .actualMinutes(23)
+                    .createAt(now.minusSeconds(86_400))
+                    .updateAt(now.minusSeconds(86_400))
+                    .build());
+        }
+
+        if (occupancyStatisticRepository.count() == 0) {
+            occupancyStatisticRepository.save(OccupancyStatistic.builder()
+                    .id("sample-occupancy-001")
+                    .businessDate(now)
+                    .hourSlot(now.atZone(ZoneId.systemDefault()).getHour())
+                    .occupiedTables(12)
+                    .availableTables(8)
+                    .occupancyRate(0.6)
+                    .createAt(now)
+                    .updateAt(now)
+                    .build());
+        }
+
+        if (reservationForecastRepository.count() == 0) {
+            reservationForecastRepository.save(ReservationForecast.builder()
+                    .id("sample-forecast-001")
+                    .forecastDate(now.plusSeconds(86_400))
+                    .hourSlot(19)
+                    .expectedReservations(10)
+                    .expectedOccupancy(16)
+                    .generateAt(now)
+                    .build());
         }
     }
 }
