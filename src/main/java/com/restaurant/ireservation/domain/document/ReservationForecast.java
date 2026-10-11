@@ -17,7 +17,7 @@ import java.time.Instant;
 @Builder
 public class ReservationForecast {
 
-    @Id
+    @org.springframework.data.annotation.Id
     String id;
 
     @Field(name = "forecast_date")

@@ -19,7 +19,7 @@ import java.time.Instant;
 @Builder
 public class OccupancyStatistic {
 
-    @Id
+    @org.springframework.data.annotation.Id
     String id;
 
     @Field(name = "business_date")
@@ -44,8 +44,5 @@ public class OccupancyStatistic {
     @Field(name = "update_at")
     @LastModifiedDate
     Instant updateAt;
-
-
-
 
 }

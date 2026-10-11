@@ -8,7 +8,6 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 import org.springframework.data.mongodb.core.mapping.FieldType;
-import org.springframework.data.redis.core.index.Indexed;
 
 import java.time.Instant;
 
@@ -21,10 +20,10 @@ import java.time.Instant;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class WaitingTimeLog {
 
-    @Id
+    @org.springframework.data.annotation.Id
     String id;
 
-    @Indexed
+    @org.springframework.data.mongodb.core.index.Indexed
     @Field(name = "reservation_id", targetType = FieldType.INT64)
     Long reservationId;
 

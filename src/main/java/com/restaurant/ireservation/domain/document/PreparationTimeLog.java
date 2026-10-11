@@ -19,7 +19,7 @@ import java.time.Instant;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class PreparationTimeLog {
 
-    @Id
+    @org.springframework.data.annotation.Id
     String id;
 
     @Field(name = "menu_item_id")
@@ -32,7 +32,7 @@ public class PreparationTimeLog {
     int actualMinutes;
 
     @CreatedDate
-    @Field(name = "creat_at")
+    @Field(name = "create_at")
     Instant createAt;
 
     @LastModifiedDate

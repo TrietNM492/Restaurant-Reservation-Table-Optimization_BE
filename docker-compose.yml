@@ -24,8 +24,7 @@ services:
       - "27017:27017"
 
     volumes:
-      - mongodb_data:/data/mongodb
-
+      - mongodb_data:/data/db
 
   redis:
     image: redis:8
