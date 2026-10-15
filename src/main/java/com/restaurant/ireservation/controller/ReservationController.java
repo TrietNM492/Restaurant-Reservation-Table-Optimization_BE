@@ -64,7 +64,7 @@ public class ReservationController {
 
     @PostMapping("/{id}/check-in")
     @ResponseStatus(HttpStatus.OK)
-    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER', 'ROLE_STAFF', 'ROLE_MANAGER', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     @ApiMessage("Check-in reservation successfully")
     public ReservationResponseDTO checkInReservation(
             @PathVariable Long id,
@@ -76,7 +76,7 @@ public class ReservationController {
 
     @PostMapping("/{id}/complete")
     @ResponseStatus(HttpStatus.OK)
-    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER', 'ROLE_STAFF', 'ROLE_MANAGER', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     @ApiMessage("Complete reservation successfully")
     public ReservationResponseDTO completeReservation(
             @PathVariable Long id,

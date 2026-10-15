@@ -26,7 +26,9 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -46,6 +48,11 @@ public class ReservationService {
     final ReservationTableRepository reservationTableRepository;
     final RestaurantTableRepository restaurantTableRepository;
     final StringRedisTemplate stringRedisTemplate;
+    Clock clock = Clock.systemUTC();
+
+    public void setClock(Clock clock) {
+        this.clock = clock;
+    }
 
     @Transactional
     public ReservationResponseDTO createReservation(CreateReservationRequestDTO dto, String username) {
@@ -241,17 +248,13 @@ public class ReservationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        boolean isStaffOrAdmin = authentication != null && authentication.getAuthorities() != null
+        boolean isAdmin = authentication != null && authentication.getAuthorities() != null
                 && authentication.getAuthorities().stream().anyMatch(a ->
-                        AuthoritiesConstants.STAFF.equals(a.getAuthority())
-                        || AuthoritiesConstants.MANAGER.equals(a.getAuthority())
-                        || AuthoritiesConstants.ADMIN.equals(a.getAuthority())
+                        AuthoritiesConstants.ADMIN.equals(a.getAuthority())
                 );
 
-        if (!isStaffOrAdmin) {
-            if (reservation.getCreatedBy() == null || !reservation.getCreatedBy().equals(username)) {
-                throw new AccessDeniedException("You are not allowed to check in this reservation");
-            }
+        if (!isAdmin) {
+            throw new AccessDeniedException("You are not allowed to check in this reservation");
         }
 
         if (reservation.getReservationStatus() == ReservationStatus.IN_PROGRESS) {
@@ -261,6 +264,11 @@ public class ReservationService {
         if (reservation.getReservationStatus() != ReservationStatus.PENDING
                 && reservation.getReservationStatus() != ReservationStatus.CONFIRMED) {
             throw new RequestInvalidException("Only reservations with PENDING or CONFIRMED status can be checked in");
+        }
+
+        Instant now = (clock != null) ? clock.instant() : Instant.now();
+        if (reservation.getStartTime() == null || now.isBefore(reservation.getStartTime())) {
+            throw new RequestInvalidException("Cannot check in before the scheduled reservation time");
         }
 
         reservation.setReservationStatus(ReservationStatus.IN_PROGRESS);
@@ -280,17 +288,13 @@ public class ReservationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        boolean isStaffOrAdmin = authentication != null && authentication.getAuthorities() != null
+        boolean isAdmin = authentication != null && authentication.getAuthorities() != null
                 && authentication.getAuthorities().stream().anyMatch(a ->
-                        AuthoritiesConstants.STAFF.equals(a.getAuthority())
-                        || AuthoritiesConstants.MANAGER.equals(a.getAuthority())
-                        || AuthoritiesConstants.ADMIN.equals(a.getAuthority())
+                        AuthoritiesConstants.ADMIN.equals(a.getAuthority())
                 );
 
-        if (!isStaffOrAdmin) {
-            if (reservation.getCreatedBy() == null || !reservation.getCreatedBy().equals(username)) {
-                throw new AccessDeniedException("You are not allowed to complete this reservation");
-            }
+        if (!isAdmin) {
+            throw new AccessDeniedException("You are not allowed to complete this reservation");
         }
 
         if (reservation.getReservationStatus() == ReservationStatus.COMPLETED) {

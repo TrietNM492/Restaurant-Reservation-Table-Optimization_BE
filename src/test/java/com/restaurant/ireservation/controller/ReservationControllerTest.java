@@ -23,7 +23,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.oauth2.jwt.Jwt;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.support.WebDataBinderFactory;
@@ -448,7 +452,18 @@ class ReservationControllerTest {
     // ==========================================
 
     @Test
-    @DisplayName("P4-TC-01: Valid check-in request returns HTTP 200 OK")
+    @DisplayName("P4-SEC-01: Check-in endpoint is secured with ROLE_ADMIN")
+    void checkInReservation_isSecuredWithRoleAdmin() throws NoSuchMethodException {
+        PreAuthorize annotation = ReservationController.class
+                .getMethod("checkInReservation", Long.class, Jwt.class)
+                .getAnnotation(PreAuthorize.class);
+
+        assertNotNull(annotation, "Endpoint must have @PreAuthorize annotation");
+        assertEquals("hasAuthority('ROLE_ADMIN')", annotation.value());
+    }
+
+    @Test
+    @DisplayName("P4-TC-01: Valid admin check-in request returns HTTP 200 OK")
     void checkInReservation_validRequest_returns200() throws Exception {
         ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
                 .id(1L)
@@ -482,8 +497,8 @@ class ReservationControllerTest {
     }
 
     @Test
-    @DisplayName("P4-TC-03: Ownership mismatch for check-in maps to HTTP 403 Forbidden")
-    void checkInReservation_ownershipMismatch_returns403() throws Exception {
+    @DisplayName("P4-TC-03: Access denied for check-in maps to HTTP 403 Forbidden")
+    void checkInReservation_accessDenied_returns403() throws Exception {
         when(reservationService.checkInReservation(eq(1L), eq("test_customer")))
                 .thenThrow(new AccessDeniedException("You are not allowed to check in this reservation"));
 
@@ -505,12 +520,35 @@ class ReservationControllerTest {
                 .andExpect(jsonPath("$.message").value("Only reservations with PENDING or CONFIRMED status can be checked in"));
     }
 
+    @Test
+    @DisplayName("P4-TC-04b: Premature check-in maps to HTTP 400 Bad Request")
+    void checkInReservation_premature_returns400() throws Exception {
+        when(reservationService.checkInReservation(eq(1L), eq("test_customer")))
+                .thenThrow(new RequestInvalidException("Cannot check in before the scheduled reservation time"));
+
+        mockMvc.perform(post("/api/v1/reservations/1/check-in"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Cannot check in before the scheduled reservation time"));
+    }
+
     // ==========================================
     // Phase 4: Complete Tests
     // ==========================================
 
     @Test
-    @DisplayName("P4-TC-05: Valid complete request returns HTTP 200 OK")
+    @DisplayName("P4-SEC-02: Complete endpoint is secured with ROLE_ADMIN")
+    void completeReservation_isSecuredWithRoleAdmin() throws NoSuchMethodException {
+        PreAuthorize annotation = ReservationController.class
+                .getMethod("completeReservation", Long.class, Jwt.class)
+                .getAnnotation(PreAuthorize.class);
+
+        assertNotNull(annotation, "Endpoint must have @PreAuthorize annotation");
+        assertEquals("hasAuthority('ROLE_ADMIN')", annotation.value());
+    }
+
+    @Test
+    @DisplayName("P4-TC-05: Valid admin complete request returns HTTP 200 OK")
     void completeReservation_validRequest_returns200() throws Exception {
         ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
                 .id(1L)
@@ -544,8 +582,8 @@ class ReservationControllerTest {
     }
 
     @Test
-    @DisplayName("P4-TC-07: Ownership mismatch for complete maps to HTTP 403 Forbidden")
-    void completeReservation_ownershipMismatch_returns403() throws Exception {
+    @DisplayName("P4-TC-07: Access denied for complete maps to HTTP 403 Forbidden")
+    void completeReservation_accessDenied_returns403() throws Exception {
         when(reservationService.completeReservation(eq(1L), eq("test_customer")))
                 .thenThrow(new AccessDeniedException("You are not allowed to complete this reservation"));
 
