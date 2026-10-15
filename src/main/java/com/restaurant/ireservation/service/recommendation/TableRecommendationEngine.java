@@ -138,7 +138,7 @@ public final class TableRecommendationEngine {
                 round2(fit), round2(gap.score()), area, reasons);
     }
 
-    // combinations
+    //  combinations
 
     private static List<Option> rankCombinations(Query q, List<TableCandidate> free, Map<Long, GapInfo> gaps) {
         int maxSize = Math.max(2, q.maxTablesPerCombination());
@@ -170,8 +170,8 @@ public final class TableRecommendationEngine {
         return result;
     }
 
-    private static void enumerate(List<TableCandidate> pool, int from, int maxSize, int guests,
-                                  Deque<TableCandidate> current, int sum, List<List<TableCandidate>> out) {
+    static void enumerate(List<TableCandidate> pool, int from, int maxSize, int guests,
+                          Deque<TableCandidate> current, int sum, List<List<TableCandidate>> out) {
         if (sum >= guests) {
             if (current.size() >= 2 && isMinimal(current, sum, guests)) {
                 out.add(List.copyOf(current));
@@ -212,7 +212,7 @@ public final class TableRecommendationEngine {
                 round2(fit), round2(gap), area, reasons);
     }
 
-    //scoring helpers
+    // scoring helpers
 
     private static GapInfo computeGap(List<Booking> bookings, Query q, Duration buffer) {
         Instant blockedFrom = q.start().minus(buffer);
