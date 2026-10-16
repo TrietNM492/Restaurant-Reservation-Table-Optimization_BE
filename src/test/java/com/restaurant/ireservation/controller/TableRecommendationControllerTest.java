@@ -116,4 +116,52 @@ class TableRecommendationControllerTest {
                         .content("{\"guestCount\":2,\"preferredAreaId\":99}"))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    @DisplayName("POST /api/v1/tables/recommendations/alternatives: returns 200 OK with alternatives")
+    void recommendAlternatives_returns200() throws Exception {
+        TableRecommendationResponse response = TableRecommendationResponse.builder()
+                .guestCount(4)
+                .recommendations(List.of())
+                .alternatives(List.of(TableRecommendationResponse.AlternativeOption.builder()
+                        .rank(1)
+                        .type(TableRecommendationResponse.AlternativeType.LATER_START)
+                        .shiftMinutes(30)
+                        .score(88.5)
+                        .explanation("Starts 30 minutes later than requested")
+                        .build()))
+                .build();
+        when(tableRecommendationService.recommendAlternatives(any(TableRecommendationRequest.class)))
+                .thenReturn(response);
+
+        mockMvc.perform(post(URL + "/alternatives")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"guestCount\":4,\"maxAlternatives\":3,\"maxShiftMinutes\":60}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alternatives[0].type").value("LATER_START"))
+                .andExpect(jsonPath("$.alternatives[0].shiftMinutes").value(30))
+                .andExpect(jsonPath("$.alternatives[0].explanation").value("Starts 30 minutes later than requested"));
+    }
+
+    @Test
+    @DisplayName("POST /alternatives: maxShiftMinutes out of range returns HTTP 400")
+    void recommendAlternatives_invalidShift_returns400() throws Exception {
+        mockMvc.perform(post(URL + "/alternatives")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"guestCount\":4,\"maxShiftMinutes\":5}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/tables/recommendations: alternativeMode is accepted")
+    void recommend_acceptsAlternativeMode() throws Exception {
+        when(tableRecommendationService.recommend(any(TableRecommendationRequest.class)))
+                .thenReturn(TableRecommendationResponse.builder().guestCount(2).build());
+
+        mockMvc.perform(post(URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"guestCount\":2,\"alternativeMode\":\"NEVER\"}"))
+                .andExpect(status().isOk());
+    }
 }

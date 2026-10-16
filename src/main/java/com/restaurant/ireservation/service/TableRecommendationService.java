@@ -6,7 +6,10 @@ import com.restaurant.ireservation.domain.enumerations.PartySize;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.TableRecommendationRequest;
+import com.restaurant.ireservation.dto.request.TableRecommendationRequest.AlternativeMode;
 import com.restaurant.ireservation.dto.response.TableRecommendationResponse;
+import com.restaurant.ireservation.dto.response.TableRecommendationResponse.AlternativeOption;
+import com.restaurant.ireservation.dto.response.TableRecommendationResponse.AlternativeType;
 import com.restaurant.ireservation.dto.response.TableRecommendationResponse.RecommendationOption;
 import com.restaurant.ireservation.dto.response.TableRecommendationResponse.RecommendationType;
 import com.restaurant.ireservation.dto.response.TableRecommendationResponse.ScoreBreakdown;
@@ -16,6 +19,8 @@ import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
 import com.restaurant.ireservation.repository.RestaurantTableRepository;
 import com.restaurant.ireservation.repository.TableAreaRepository;
+import com.restaurant.ireservation.service.recommendation.AlternativeRecommendationEngine;
+import com.restaurant.ireservation.service.recommendation.AlternativeRecommendationEngine.Alternative;
 import com.restaurant.ireservation.service.recommendation.TableRecommendationEngine;
 import com.restaurant.ireservation.service.recommendation.TableRecommendationEngine.Booking;
 import com.restaurant.ireservation.service.recommendation.TableRecommendationEngine.Option;
@@ -32,9 +37,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 @Service
 @RequiredArgsConstructor
@@ -46,12 +52,19 @@ public class TableRecommendationService {
     /** Cleaning / turnaround time kept free between two bookings of the same table. */
     private static final int TURNAROUND_BUFFER_MINUTES = 15;
     private static final int MAX_TABLES_PER_COMBINATION = 3;
-    /** How far around the requested slot we look for neighbouring bookings (for gap scoring). */
+    /** How far around the requested slot we look for neighbouring bookings (for gap scoring and alternatives). */
     private static final Duration NEIGHBOUR_LOOKAROUND = Duration.ofHours(6);
     /** A slot starting within this time from now is blocked by tables that are physically IN_USE / CLEANING. */
     private static final Duration OCCUPANCY_LOOKAHEAD = Duration.ofMinutes(30);
     /** Small tolerance so a "now" request that spends a few seconds on the wire is not rejected. */
     private static final Duration PAST_TOLERANCE = Duration.ofMinutes(5);
+
+    private static final int DEFAULT_MAX_ALTERNATIVES = 5;
+    private static final int DEFAULT_MAX_SHIFT_MINUTES = 120;
+    /** Alternatives never shorten the stay below this many minutes. */
+    private static final int MIN_ALTERNATIVE_DURATION_MINUTES = 60;
+    /** Big parties: how many tables of ONE area a MORE_TABLES alternative may merge (usual limit is 3). */
+    private static final int EXTENDED_MAX_TABLES_PER_COMBINATION = 5;
 
     /** Same blocking statuses used by ReservationService when it checks conflicts. */
     private static final List<ReservationStatus> BLOCKING_STATUSES = List.of(
@@ -64,8 +77,20 @@ public class TableRecommendationService {
     ReservationTableRepository reservationTableRepository;
     TableAreaRepository tableAreaRepository;
 
+    /** Recommends tables for the requested slot; alternatives follow the request's alternativeMode (AUTO). */
     @Transactional(readOnly = true)
     public TableRecommendationResponse recommend(TableRecommendationRequest request) {
+        AlternativeMode mode = request.getAlternativeMode() != null ? request.getAlternativeMode() : AlternativeMode.AUTO;
+        return process(request, mode);
+    }
+
+    /** Same as {@link #recommend} but always computes alternatives ("what else can we offer?"). */
+    @Transactional(readOnly = true)
+    public TableRecommendationResponse recommendAlternatives(TableRecommendationRequest request) {
+        return process(request, AlternativeMode.ALWAYS);
+    }
+
+    private TableRecommendationResponse process(TableRecommendationRequest request, AlternativeMode mode) {
         Instant now = Instant.now();
         Instant start = request.getStartTime() != null ? request.getStartTime() : now;
         if (start.isBefore(now.minus(PAST_TOLERANCE))) {
@@ -83,33 +108,32 @@ public class TableRecommendationService {
             throw new ResourceNotFoundException("Table area not found with id: " + preferredAreaId);
         }
 
-        boolean startsSoon = start.isBefore(now.plus(OCCUPANCY_LOOKAHEAD));
-        Map<Long, RestaurantTable> usableTables = new HashMap<>();
-        List<TableCandidate> candidates = new ArrayList<>();
+        // Every table that is not LOCKED can host a booking at SOME time; whether it is usable for a given
+        // start time (IN_USE / CLEANING only matter for slots starting soon) is decided per probe.
+        Map<Long, RestaurantTable> bookable = new LinkedHashMap<>();
         for (RestaurantTable t : restaurantTableRepository.findAllByOrderByTableNumberAsc()) {
-            if (!isUsable(t, startsSoon)) {
-                continue;
+            if (t.getStatusCode() != TableStatus.LOCKED) {
+                bookable.put(t.getId(), t);
             }
-            usableTables.put(t.getId(), t);
-            candidates.add(new TableCandidate(
-                    t.getId(),
-                    t.getTableNumber() != null ? t.getTableNumber() : 0,
-                    t.getCapacity(),
-                    t.getArea() != null ? t.getArea().getId() : null
-            ));
         }
-
-        List<Booking> bookings = candidates.isEmpty() ? List.of() : loadBookings(usableTables.keySet(), start, end);
+        List<Booking> bookings = bookable.isEmpty() ? List.of() : loadBookings(bookable.keySet(), start, end);
 
         Query query = new Query(guests, start, end, preferredAreaId, maxResults, allowCombination,
                 TURNAROUND_BUFFER_MINUTES, MAX_TABLES_PER_COMBINATION);
-        Result result = TableRecommendationEngine.recommend(query, candidates, bookings);
+        Result result = TableRecommendationEngine.recommend(query, candidatesFor(bookable, now).apply(start), bookings);
 
         List<RecommendationOption> options = new ArrayList<>();
         int rank = 1;
         for (Option o : result.options()) {
-            options.add(toOption(rank++, o, guests, usableTables));
+            options.add(toOption(rank++, o, guests, bookable));
         }
+
+        boolean searchAlternatives = mode == AlternativeMode.ALWAYS
+                || (mode == AlternativeMode.AUTO && options.isEmpty());
+        int maxShift = request.getMaxShiftMinutes() != null ? request.getMaxShiftMinutes() : DEFAULT_MAX_SHIFT_MINUTES;
+        List<AlternativeOption> alternatives = searchAlternatives
+                ? findAlternatives(request, query, now, maxShift, bookable, bookings, guests)
+                : List.of();
 
         return TableRecommendationResponse.builder()
                 .guestCount(guests)
@@ -119,7 +143,9 @@ public class TableRecommendationService {
                 .durationMinutes(duration)
                 .availableTableCount(result.freeTableCount())
                 .recommendations(options)
-                .message(buildMessage(options, result.freeTableCount(), guests))
+                .alternatives(alternatives)
+                .message(buildMessage(options, result.freeTableCount(), guests, alternatives.size(),
+                        searchAlternatives, maxShift))
                 .build();
     }
 
@@ -135,14 +161,65 @@ public class TableRecommendationService {
         return PartySize.XLARGE;
     }
 
-    private boolean isUsable(RestaurantTable table, boolean startsSoon) {
-        TableStatus status = table.getStatusCode();
-        if (status == TableStatus.LOCKED) {
-            return false;
+    // alternatives
+
+    private List<AlternativeOption> findAlternatives(TableRecommendationRequest request, Query query, Instant now,
+                                                     int maxShift, Map<Long, RestaurantTable> bookable,
+                                                     List<Booking> bookings, int guests) {
+        int maxAlternatives = request.getMaxAlternatives() != null
+                ? request.getMaxAlternatives() : DEFAULT_MAX_ALTERNATIVES;
+        // earliestStart = now: never suggest a slot in the past. latestEnd = null: opening hours are not
+        // modelled in this project yet; pass the closing time here once they are.
+        AlternativeRecommendationEngine.Params params = new AlternativeRecommendationEngine.Params(
+                AlternativeRecommendationEngine.STEP_MINUTES, maxShift, maxAlternatives,
+                MIN_ALTERNATIVE_DURATION_MINUTES, EXTENDED_MAX_TABLES_PER_COMBINATION, now, null);
+
+        List<AlternativeOption> result = new ArrayList<>();
+        int rank = 1;
+        for (Alternative a : AlternativeRecommendationEngine.find(params, query, candidatesFor(bookable, now), bookings)) {
+            result.add(AlternativeOption.builder()
+                    .rank(rank)
+                    .type(AlternativeType.valueOf(a.kind().name()))
+                    .startTime(a.start())
+                    .endTime(a.end())
+                    .durationMinutes(a.durationMinutes())
+                    .shiftMinutes(a.shiftMinutes())
+                    .durationChangeMinutes(a.durationChangeMinutes())
+                    .convenienceScore(a.convenienceScore())
+                    .score(a.score())
+                    .explanation(a.explanation())
+                    .recommendation(toOption(1, a.option(), guests, bookable))
+                    .build());
+            rank++;
         }
-        // IN_USE / CLEANING describe the table right now, so they only matter for slots starting soon.
-        // For later slots, real conflicts are detected from the bookings instead.
-        return !(startsSoon && (status == TableStatus.IN_USE || status == TableStatus.CLEANING));
+        return result;
+    }
+
+    // data access / mapping
+
+    /**
+     * Tables usable for a slot starting at the given instant. IN_USE / CLEANING describe the table right now,
+     * so they only block slots starting within {@link #OCCUPANCY_LOOKAHEAD}; for later slots real conflicts
+     * are detected from the bookings instead.
+     */
+    private Function<Instant, List<TableCandidate>> candidatesFor(
+            Map<Long, RestaurantTable> bookable, Instant now) {
+        return slotStart -> {
+            boolean startsSoon = slotStart.isBefore(now.plus(OCCUPANCY_LOOKAHEAD));
+            List<TableCandidate> list = new ArrayList<>();
+            for (RestaurantTable t : bookable.values()) {
+                TableStatus status = t.getStatusCode();
+                if (startsSoon && (status == TableStatus.IN_USE || status == TableStatus.CLEANING)) {
+                    continue;
+                }
+                list.add(new TableCandidate(
+                        t.getId(),
+                        t.getTableNumber() != null ? t.getTableNumber() : 0,
+                        t.getCapacity(),
+                        t.getArea() != null ? t.getArea().getId() : null));
+            }
+            return list;
+        };
     }
 
     private List<Booking> loadBookings(Collection<Long> tableIds, Instant start, Instant end) {
@@ -194,8 +271,18 @@ public class TableRecommendationService {
                 .build();
     }
 
-    private String buildMessage(List<RecommendationOption> options, int freeTables, int guests) {
+    private String buildMessage(List<RecommendationOption> options, int freeTables, int guests,
+                                int alternativeCount, boolean searchedAlternatives, int maxShift) {
         if (options.isEmpty()) {
+            if (alternativeCount > 0) {
+                return "No table can seat " + guests + " guests at the requested time, but " + alternativeCount
+                        + (alternativeCount == 1 ? " alternative was" : " alternatives were")
+                        + " found (see 'alternatives').";
+            }
+            if (searchedAlternatives) {
+                return "No table can seat " + guests + " guests at the requested time, and no alternative was found "
+                        + "within " + maxShift + " minutes earlier or later. Please try another date or consider a room.";
+            }
             if (freeTables == 0) {
                 return "No tables are available in the requested time slot. Please try a different time.";
             }

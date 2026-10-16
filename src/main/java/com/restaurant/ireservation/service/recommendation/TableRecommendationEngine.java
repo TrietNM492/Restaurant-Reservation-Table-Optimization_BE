@@ -98,7 +98,7 @@ public final class TableRecommendationEngine {
         options.addAll(rankSingles(query, free, gaps));
 
         if (query.allowCombination() && options.size() < query.maxResults()) {
-            options.addAll(rankCombinations(query, free, gaps));
+            options.addAll(rankCombinations(query, free, gaps, query.maxResults() - options.size()));
         }
 
         List<Option> top = options.size() > query.maxResults()
@@ -138,16 +138,25 @@ public final class TableRecommendationEngine {
                 round2(fit), round2(gap.score()), area, reasons);
     }
 
-    //  combinations
+    // combinations
 
-    private static List<Option> rankCombinations(Query q, List<TableCandidate> free, Map<Long, GapInfo> gaps) {
+    /** Lightweight scored combination: the expensive Option (with reason strings) is built only if it is kept. */
+    private record ScoredCombo(List<TableCandidate> tables, int total, double fit, double gap, Double area,
+                               double score, int[] sortedTableNumbers) {
+    }
+
+    private static List<Option> rankCombinations(Query q, List<TableCandidate> free, Map<Long, GapInfo> gaps,
+                                                 int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
         int maxSize = Math.max(2, q.maxTablesPerCombination());
 
         Map<Long, List<TableCandidate>> byArea = free.stream()
                 .filter(t -> t.areaId() != null)   // tables without an area cannot be safely merged
                 .collect(Collectors.groupingBy(TableCandidate::areaId));
 
-        List<Option> result = new ArrayList<>();
+        List<ScoredCombo> scored = new ArrayList<>();
         for (List<TableCandidate> areaTables : byArea.values()) {
             List<TableCandidate> pool = areaTables.stream()
                     .sorted(Comparator.comparingInt(TableCandidate::capacity).reversed()
@@ -158,16 +167,16 @@ public final class TableRecommendationEngine {
             List<List<TableCandidate>> combos = new ArrayList<>();
             enumerate(pool, 0, maxSize, q.guestCount(), new ArrayDeque<>(), 0, combos);
             for (List<TableCandidate> combo : combos) {
-                result.add(buildCombination(q, combo, gaps));
+                scored.add(scoreCombination(q, combo, gaps));
             }
         }
 
-        result.sort(Comparator.comparingDouble(Option::score).reversed()
-                .thenComparingInt(o -> o.tables().size())
-                .thenComparingInt(Option::totalCapacity)
-                .thenComparing(o -> o.tables().stream()
-                        .map(TableCandidate::tableNumber).sorted().toList().toString()));
-        return result;
+        scored.sort(Comparator.comparingDouble(ScoredCombo::score).reversed()
+                .thenComparingInt((ScoredCombo c) -> c.tables().size())
+                .thenComparingInt(ScoredCombo::total)
+                .thenComparing(ScoredCombo::sortedTableNumbers, (int[] x, int[] y) -> Arrays.compare(x, y)));
+
+        return scored.stream().limit(limit).map(c -> buildCombination(q, c)).toList();
     }
 
     static void enumerate(List<TableCandidate> pool, int from, int maxSize, int guests,
@@ -194,22 +203,37 @@ public final class TableRecommendationEngine {
         return sum - smallest < guests;
     }
 
-    private static Option buildCombination(Query q, List<TableCandidate> combo, Map<Long, GapInfo> gaps) {
-        int total = combo.stream().mapToInt(TableCandidate::capacity).sum();
+    private static ScoredCombo scoreCombination(Query q, List<TableCandidate> combo, Map<Long, GapInfo> gaps) {
+        int total = 0;
+        double gapSum = 0;
+        int[] numbers = new int[combo.size()];
+        for (int i = 0; i < combo.size(); i++) {
+            TableCandidate t = combo.get(i);
+            total += t.capacity();
+            gapSum += gaps.get(t.id()).score();
+            numbers[i] = t.tableNumber();
+        }
+        Arrays.sort(numbers);
         int n = combo.size();
 
         double fit = ((double) q.guestCount() / total) * (1 - COMBINATION_PENALTY_PER_EXTRA_TABLE * (n - 1));
-        double gap = combo.stream().mapToDouble(t -> gaps.get(t.id()).score()).average().orElse(GAP_OPEN);
+        double gap = gapSum / n;
         Double area = areaScore(q.preferredAreaId(), combo);
+        return new ScoredCombo(combo, total, fit, gap, area, combine(fit, gap, area), numbers);
+    }
+
+    private static Option buildCombination(Query q, ScoredCombo c) {
+        List<TableCandidate> combo = c.tables();
+        int n = combo.size();
 
         List<String> reasons = new ArrayList<>();
         String caps = combo.stream().map(t -> String.valueOf(t.capacity())).collect(Collectors.joining(" + "));
-        reasons.add("Combination of " + n + " tables in the same area (" + caps + " = " + total + " seats)");
+        reasons.add("Combination of " + n + " tables in the same area (" + caps + " = " + c.total() + " seats)");
         reasons.add("No single table can seat " + q.guestCount() + " guests at this time");
-        addAreaReason(reasons, q.preferredAreaId(), area);
+        addAreaReason(reasons, q.preferredAreaId(), c.area());
 
-        return new Option(List.copyOf(combo), total, combine(fit, gap, area),
-                round2(fit), round2(gap), area, reasons);
+        return new Option(List.copyOf(combo), c.total(), c.score(),
+                round2(c.fit()), round2(c.gap()), c.area(), reasons);
     }
 
     // scoring helpers

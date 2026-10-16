@@ -8,7 +8,10 @@ import com.restaurant.ireservation.domain.enumerations.AreaName;
 import com.restaurant.ireservation.domain.enumerations.PartySize;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.TableRecommendationRequest;
+import com.restaurant.ireservation.dto.request.TableRecommendationRequest.AlternativeMode;
 import com.restaurant.ireservation.dto.response.TableRecommendationResponse;
+import com.restaurant.ireservation.dto.response.TableRecommendationResponse.AlternativeOption;
+import com.restaurant.ireservation.dto.response.TableRecommendationResponse.AlternativeType;
 import com.restaurant.ireservation.dto.response.TableRecommendationResponse.RecommendationType;
 import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
@@ -259,6 +262,183 @@ class TableRecommendationServiceTest {
 
         assertEquals(start.plus(Duration.ofMinutes(120)), res.getEndTime());
         assertEquals(120, res.getDurationMinutes());
+    }
+
+    // Alternative Recommendation
+
+    @Test
+    @DisplayName("Alternatives: no table at the requested time -> earlier and later slots are suggested")
+    void alternatives_suggestedWhenNothingFits() {
+        RestaurantTable only = table(1, 4, indoor, TableStatus.AVAILABLE);
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc()).thenReturn(List.of(only));
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any()))
+                .thenReturn(List.of(booking(only, start, start.plus(Duration.ofMinutes(90)))));
+
+        TableRecommendationResponse res = service.recommend(request(4));
+
+        assertTrue(res.getRecommendations().isEmpty());
+        assertFalse(res.getAlternatives().isEmpty());
+        assertTrue(res.getMessage().contains("alternative"));
+        AlternativeOption later = res.getAlternatives().stream()
+                .filter(a -> a.getType() == AlternativeType.LATER_START).findFirst().orElseThrow();
+        assertEquals(105, later.getShiftMinutes());
+        assertEquals(start.plus(Duration.ofMinutes(105)), later.getStartTime());
+        assertEquals(start.plus(Duration.ofMinutes(195)), later.getEndTime());
+        assertEquals(List.of(1L), later.getRecommendation().getTableIds());
+        assertTrue(res.getAlternatives().stream().anyMatch(a -> a.getType() == AlternativeType.EARLIER_START));
+        assertEquals(1, res.getAlternatives().get(0).getRank());
+    }
+
+    @Test
+    @DisplayName("Alternatives: nothing found within the search range gives an explanatory message")
+    void alternatives_noneFound() {
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc())
+                .thenReturn(List.of(table(1, 4, indoor, TableStatus.AVAILABLE)));
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any())).thenReturn(List.of());
+
+        TableRecommendationResponse res = service.recommend(request(30));
+
+        assertTrue(res.getRecommendations().isEmpty());
+        assertTrue(res.getAlternatives().isEmpty());
+        assertTrue(res.getMessage().contains("no alternative"));
+    }
+
+    @Test
+    @DisplayName("Alternatives: AUTO mode does not search when the requested slot has tables")
+    void alternatives_notComputedWhenTableAvailable() {
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc())
+                .thenReturn(List.of(table(1, 4, indoor, TableStatus.AVAILABLE)));
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any())).thenReturn(List.of());
+
+        TableRecommendationResponse res = service.recommend(request(4));
+
+        assertEquals(1, res.getRecommendations().size());
+        assertTrue(res.getAlternatives().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Alternatives: NEVER mode keeps the plain message and returns no alternatives")
+    void alternatives_neverMode() {
+        RestaurantTable only = table(1, 4, indoor, TableStatus.AVAILABLE);
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc()).thenReturn(List.of(only));
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any()))
+                .thenReturn(List.of(booking(only, start, start.plus(Duration.ofMinutes(90)))));
+
+        TableRecommendationResponse res = service.recommend(TableRecommendationRequest.builder()
+                .guestCount(4).startTime(start).alternativeMode(AlternativeMode.NEVER).build());
+
+        assertTrue(res.getRecommendations().isEmpty());
+        assertTrue(res.getAlternatives().isEmpty());
+        assertNotNull(res.getMessage());
+    }
+
+    @Test
+    @DisplayName("recommendAlternatives always returns alternatives, even when the requested slot has a table")
+    void alternatives_alwaysMode() {
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc())
+                .thenReturn(List.of(table(1, 4, indoor, TableStatus.AVAILABLE)));
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any())).thenReturn(List.of());
+
+        TableRecommendationResponse res = service.recommendAlternatives(request(4));
+
+        assertEquals(1, res.getRecommendations().size());
+        assertFalse(res.getAlternatives().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Alternatives: maxAlternatives limits the list")
+    void alternatives_maxAlternatives() {
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc())
+                .thenReturn(List.of(table(1, 4, indoor, TableStatus.AVAILABLE)));
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any())).thenReturn(List.of());
+
+        TableRecommendationResponse res = service.recommendAlternatives(TableRecommendationRequest.builder()
+                .guestCount(4).startTime(start).maxAlternatives(3).build());
+
+        assertEquals(3, res.getAlternatives().size());
+    }
+
+    @Test
+    @DisplayName("Alternatives: walk-in never gets an earlier start (would be in the past)")
+    void alternatives_neverInThePast() {
+        RestaurantTable only = table(1, 4, indoor, TableStatus.AVAILABLE);
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc()).thenReturn(List.of(only));
+        Instant now = Instant.now();
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any()))
+                .thenReturn(List.of(booking(only, now, now.plus(Duration.ofMinutes(90)))));
+
+        TableRecommendationResponse res = service.recommend(
+                TableRecommendationRequest.builder().guestCount(4).build());
+
+        assertFalse(res.getAlternatives().isEmpty());
+        assertTrue(res.getAlternatives().stream().noneMatch(a -> a.getShiftMinutes() < 0));
+    }
+
+    @Test
+    @DisplayName("Alternatives: an IN_USE table becomes eligible for a slot starting after the occupancy look-ahead")
+    void alternatives_inUseTableEligibleForLaterSlot() {
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc())
+                .thenReturn(List.of(table(1, 4, indoor, TableStatus.IN_USE)));
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any())).thenReturn(List.of());
+
+        TableRecommendationResponse res = service.recommend(
+                TableRecommendationRequest.builder().guestCount(4).build());
+
+        assertTrue(res.getRecommendations().isEmpty());          // walk-in now: table physically occupied
+        AlternativeOption first = res.getAlternatives().stream()
+                .min(java.util.Comparator.comparingInt(AlternativeOption::getShiftMinutes)).orElseThrow();
+        assertEquals(30, first.getShiftMinutes());
+        assertEquals(AlternativeType.LATER_START, first.getType());
+    }
+
+    @Test
+    @DisplayName("Alternatives: suggests merging tables when combination was disabled")
+    void alternatives_combinationWhenDisabled() {
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc()).thenReturn(List.of(
+                table(1, 4, indoor, TableStatus.AVAILABLE), table(2, 4, indoor, TableStatus.AVAILABLE)));
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any())).thenReturn(List.of());
+
+        TableRecommendationResponse res = service.recommend(TableRecommendationRequest.builder()
+                .guestCount(8).startTime(start).allowCombination(false).build());
+
+        assertTrue(res.getRecommendations().isEmpty());
+        assertEquals(1, res.getAlternatives().size());
+        assertEquals(AlternativeType.TABLE_COMBINATION, res.getAlternatives().get(0).getType());
+        assertEquals(2, res.getAlternatives().get(0).getRecommendation().getTableIds().size());
+    }
+
+    @Test
+    @DisplayName("Alternatives: big party needing more tables than the usual limit gets a MORE_TABLES alternative")
+    void alternatives_moreTablesForBigParty() {
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc()).thenReturn(List.of(
+                table(1, 4, indoor, TableStatus.AVAILABLE), table(2, 4, indoor, TableStatus.AVAILABLE),
+                table(3, 4, indoor, TableStatus.AVAILABLE), table(4, 4, indoor, TableStatus.AVAILABLE)));
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any())).thenReturn(List.of());
+
+        TableRecommendationResponse res = service.recommend(request(14));
+
+        assertTrue(res.getRecommendations().isEmpty());          // 3 tables = 12 seats < 14
+        assertEquals(1, res.getAlternatives().size());
+        AlternativeOption more = res.getAlternatives().get(0);
+        assertEquals(AlternativeType.MORE_TABLES, more.getType());
+        assertEquals(start, more.getStartTime());
+        assertEquals(4, more.getRecommendation().getTableIds().size());
+        assertEquals(16, more.getRecommendation().getTotalCapacity());
+        assertEquals(PartySize.XLARGE, res.getSuggestedPartySize());
+    }
+
+    @Test
+    @DisplayName("Alternatives: tables of different areas are never merged into one MORE_TABLES alternative")
+    void alternatives_noCrossAreaMerge() {
+        when(restaurantTableRepository.findAllByOrderByTableNumberAsc()).thenReturn(List.of(
+                table(1, 4, indoor, TableStatus.AVAILABLE), table(2, 4, indoor, TableStatus.AVAILABLE),
+                table(3, 4, garden, TableStatus.AVAILABLE), table(4, 4, garden, TableStatus.AVAILABLE)));
+        when(reservationTableRepository.findActiveBookingsInWindow(any(), any(), any(), any())).thenReturn(List.of());
+
+        TableRecommendationResponse res = service.recommend(request(14));
+
+        assertTrue(res.getRecommendations().isEmpty());
+        assertTrue(res.getAlternatives().isEmpty());
     }
 
     @Test
