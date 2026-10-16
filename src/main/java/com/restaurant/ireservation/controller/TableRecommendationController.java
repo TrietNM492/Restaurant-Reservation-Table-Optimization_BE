@@ -31,4 +31,16 @@ public class TableRecommendationController {
     public TableRecommendationResponse recommendTables(@Valid @RequestBody TableRecommendationRequest request) {
         return tableRecommendationService.recommend(request);
     }
+
+    /**
+     * "What else can we offer?": always returns alternative slots (earlier / later start, shorter stay,
+     * merged tables) next to the recommendations for the requested slot.
+     */
+    @PostMapping("/alternatives")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER', 'ROLE_STAFF', 'ROLE_MANAGER', 'ROLE_ADMIN')")
+    @ApiMessage("Fetch alternative table recommendations successfully")
+    public TableRecommendationResponse recommendAlternatives(@Valid @RequestBody TableRecommendationRequest request) {
+        return tableRecommendationService.recommendAlternatives(request);
+    }
 }

@@ -28,10 +28,46 @@ public class TableRecommendationResponse {
     int availableTableCount;
     /** Ordered best-first. Empty when nothing fits (see message). */
     List<RecommendationOption> recommendations;
+    /**
+     * Other slots (earlier / later start, shorter stay, merged tables) that do work, best first.
+     * Empty unless the request asked for them or nothing fit the requested slot.
+     */
+    List<AlternativeOption> alternatives;
     String message;
 
     public enum RecommendationType {
         SINGLE_TABLE, TABLE_COMBINATION
+    }
+
+    public enum AlternativeType {
+        EARLIER_START, LATER_START, SHORTER_DURATION, TABLE_COMBINATION, MORE_TABLES
+    }
+
+    /** A relaxed version of the request that does have a table. Use startTime / endTime / tableIds to book it. */
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @FieldDefaults(level = AccessLevel.PRIVATE)
+    public static class AlternativeOption {
+        int rank;
+        AlternativeType type;
+        Instant startTime;
+        Instant endTime;
+        int durationMinutes;
+        /** Start offset versus the request in minutes (negative = earlier). */
+        int shiftMinutes;
+        /** Stay change versus the request in minutes (negative = shorter). */
+        int durationChangeMinutes;
+        /** 0 - 100, how little the guest has to give up. */
+        double convenienceScore;
+        /** 0 - 100, combines convenience and the quality of the table found. */
+        double score;
+        /** Human readable, e.g. "Starts 30 minutes later than requested". */
+        String explanation;
+        /** Best table (or combination) available for this alternative slot. */
+        RecommendationOption recommendation;
     }
 
     @Getter

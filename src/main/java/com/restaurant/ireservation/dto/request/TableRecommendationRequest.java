@@ -39,4 +39,26 @@ public class TableRecommendationRequest {
 
     /** Optional. Defaults to true: suggest merging tables of the same area when single tables are not enough. */
     Boolean allowCombination;
+
+    /** Optional. When to suggest alternative slots; defaults to AUTO (only when nothing fits). */
+    AlternativeMode alternativeMode;
+
+    /** Optional. Maximum number of alternatives returned. Defaults to 5. */
+    @Min(value = 1, message = "maxAlternatives must be at least 1")
+    @Max(value = 10, message = "maxAlternatives cannot exceed 10")
+    Integer maxAlternatives;
+
+    /** Optional. How far (minutes) the start may move earlier / later. Defaults to 120. */
+    @Min(value = 15, message = "maxShiftMinutes must be at least 15")
+    @Max(value = 180, message = "maxShiftMinutes cannot exceed 180")
+    Integer maxShiftMinutes;
+
+    public enum AlternativeMode {
+        /** Suggest alternatives only when no table fits the requested slot. */
+        AUTO,
+        /** Always suggest alternatives, even when the requested slot has tables. */
+        ALWAYS,
+        /** Never suggest alternatives. */
+        NEVER
+    }
 }
