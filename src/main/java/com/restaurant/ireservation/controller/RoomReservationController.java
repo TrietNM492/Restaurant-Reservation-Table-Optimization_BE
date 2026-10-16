@@ -1,7 +1,9 @@
 package com.restaurant.ireservation.controller;
 
 import com.restaurant.ireservation.dto.request.RoomReservationBookingRequestDTO;
+import com.restaurant.ireservation.dto.request.VipRoomRecommendationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
+import com.restaurant.ireservation.dto.response.VipRoomRecommendationResponseDTO;
 import com.restaurant.ireservation.service.ReservationService;
 import com.restaurant.ireservation.util.annotation.ApiMessage;
 import jakarta.validation.Valid;
@@ -32,5 +34,15 @@ public class RoomReservationController {
     ) {
         String username = jwt.getSubject();
         return reservationService.createRoomReservation(requestDTO, username);
+    }
+
+    @GetMapping("/recommendation")
+    @ResponseStatus(HttpStatus.OK)
+    @PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER', 'ROLE_STAFF', 'ROLE_MANAGER', 'ROLE_ADMIN')")
+    @ApiMessage("Fetch VIP room recommendations successfully")
+    public VipRoomRecommendationResponseDTO getVipRoomRecommendations(
+            @Valid @ModelAttribute VipRoomRecommendationRequestDTO requestDTO
+    ) {
+        return reservationService.getVipRoomRecommendations(requestDTO);
     }
 }

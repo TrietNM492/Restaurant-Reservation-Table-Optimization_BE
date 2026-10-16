@@ -5,9 +5,12 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.restaurant.ireservation.domain.enumerations.PartySize;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.ReservationType;
+import com.restaurant.ireservation.domain.enumerations.RoomStatus;
 import com.restaurant.ireservation.domain.enumerations.RoomType;
 import com.restaurant.ireservation.dto.request.RoomReservationBookingRequestDTO;
+import com.restaurant.ireservation.dto.request.VipRoomRecommendationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
+import com.restaurant.ireservation.dto.response.VipRoomRecommendationResponseDTO;
 import com.restaurant.ireservation.error.GlobalException;
 import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
@@ -40,6 +43,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -349,6 +353,128 @@ class RoomReservationControllerTest {
         mockMvc.perform(post("/api/v1/room-reservation/booking")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"))
+                .andExpect(jsonPath("$.message").value("Access is denied"));
+    }
+
+    @Test
+    @DisplayName("RR-CTRL-12: Valid recommendation query returns HTTP 200 with room recommendations")
+    void getRecommendations_success_returns200() throws Exception {
+        Instant start = Instant.parse("2026-11-20T19:00:00Z");
+        Instant end = Instant.parse("2026-11-20T21:30:00Z");
+
+        VipRoomRecommendationResponseDTO mockResponse = VipRoomRecommendationResponseDTO.builder()
+                .partySize(PartySize.LARGE)
+                .startTime(start)
+                .endTime(end)
+                .totalRooms(2)
+                .availableRooms(1)
+                .recommendedRoomId(1L)
+                .rooms(List.of(
+                        VipRoomRecommendationResponseDTO.VipRoomOptionDTO.builder()
+                                .id(1L)
+                                .roomName("Presidential Suite")
+                                .roomType(RoomType.VIP_ROOM)
+                                .capacity(12)
+                                .price(500.0)
+                                .roomStatus(RoomStatus.AVAILABLE)
+                                .isAvailable(true)
+                                .isRecommended(true)
+                                .build(),
+                        VipRoomRecommendationResponseDTO.VipRoomOptionDTO.builder()
+                                .id(2L)
+                                .roomName("Royal Suite")
+                                .roomType(RoomType.VIP_ROOM)
+                                .capacity(20)
+                                .price(800.0)
+                                .roomStatus(RoomStatus.AVAILABLE)
+                                .isAvailable(false)
+                                .isRecommended(false)
+                                .unavailabilityReason("Reserved for the requested time slot")
+                                .build()
+                ))
+                .build();
+
+        when(reservationService.getVipRoomRecommendations(any(VipRoomRecommendationRequestDTO.class)))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(get("/api/v1/room-reservation/recommendation")
+                        .param("startTime", "2026-11-20T19:00:00Z")
+                        .param("endTime", "2026-11-20T21:30:00Z")
+                        .param("partySize", "LARGE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partySize").value("LARGE"))
+                .andExpect(jsonPath("$.totalRooms").value(2))
+                .andExpect(jsonPath("$.availableRooms").value(1))
+                .andExpect(jsonPath("$.recommendedRoomId").value(1))
+                .andExpect(jsonPath("$.rooms[0].roomName").value("Presidential Suite"))
+                .andExpect(jsonPath("$.rooms[0].isAvailable").value(true))
+                .andExpect(jsonPath("$.rooms[0].isRecommended").value(true))
+                .andExpect(jsonPath("$.rooms[1].roomName").value("Royal Suite"))
+                .andExpect(jsonPath("$.rooms[1].isAvailable").value(false))
+                .andExpect(jsonPath("$.rooms[1].isRecommended").value(false))
+                .andExpect(jsonPath("$.rooms[1].unavailabilityReason").value("Reserved for the requested time slot"));
+    }
+
+    @Test
+    @DisplayName("RR-CTRL-13: Missing startTime returns HTTP 400 Bad Request")
+    void getRecommendations_missingStartTime_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/room-reservation/recommendation")
+                        .param("endTime", "2026-11-20T21:30:00Z")
+                        .param("partySize", "LARGE"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"))
+                .andExpect(jsonPath("$.message.startTime").value("Start time is required"));
+    }
+
+    @Test
+    @DisplayName("RR-CTRL-14: Missing endTime returns HTTP 400 Bad Request")
+    void getRecommendations_missingEndTime_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/room-reservation/recommendation")
+                        .param("startTime", "2026-11-20T19:00:00Z")
+                        .param("partySize", "LARGE"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"))
+                .andExpect(jsonPath("$.message.endTime").value("End time is required"));
+    }
+
+    @Test
+    @DisplayName("RR-CTRL-15: Missing partySize returns HTTP 400 Bad Request")
+    void getRecommendations_missingPartySize_returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/room-reservation/recommendation")
+                        .param("startTime", "2026-11-20T19:00:00Z")
+                        .param("endTime", "2026-11-20T21:30:00Z"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"))
+                .andExpect(jsonPath("$.message.partySize").value("Party size is required"));
+    }
+
+    @Test
+    @DisplayName("RR-CTRL-16: End time before start time returns HTTP 400 Bad Request")
+    void getRecommendations_endTimeBeforeStartTime_returns400() throws Exception {
+        when(reservationService.getVipRoomRecommendations(any(VipRoomRecommendationRequestDTO.class)))
+                .thenThrow(new RequestInvalidException("End time must be after start time"));
+
+        mockMvc.perform(get("/api/v1/room-reservation/recommendation")
+                        .param("startTime", "2026-11-20T21:30:00Z")
+                        .param("endTime", "2026-11-20T19:00:00Z")
+                        .param("partySize", "LARGE"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("End time must be after start time"));
+    }
+
+    @Test
+    @DisplayName("RR-CTRL-17: Recommendation accessDenied maps to HTTP 403 Forbidden")
+    void getRecommendations_accessDenied_returns403() throws Exception {
+        when(reservationService.getVipRoomRecommendations(any(VipRoomRecommendationRequestDTO.class)))
+                .thenThrow(new AccessDeniedException("Access is denied"));
+
+        mockMvc.perform(get("/api/v1/room-reservation/recommendation")
+                        .param("startTime", "2026-11-20T19:00:00Z")
+                        .param("endTime", "2026-11-20T21:30:00Z")
+                        .param("partySize", "LARGE"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("Forbidden"))
                 .andExpect(jsonPath("$.message").value("Access is denied"));

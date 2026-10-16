@@ -13,7 +13,9 @@ import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
 import com.restaurant.ireservation.dto.request.RoomReservationBookingRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.VipRoomRecommendationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
+import com.restaurant.ireservation.dto.response.VipRoomRecommendationResponseDTO;
 import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
@@ -39,7 +41,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -212,6 +216,115 @@ public class ReservationService {
                 .note(dto.getNote())
                 .build();
         return createReservation(createDto, username);
+    }
+
+    @Transactional(readOnly = true)
+    public VipRoomRecommendationResponseDTO getVipRoomRecommendations(VipRoomRecommendationRequestDTO dto) {
+        if (dto.getStartTime() == null) {
+            throw new RequestInvalidException("Start time is required");
+        }
+        if (dto.getEndTime() == null) {
+            throw new RequestInvalidException("End time is required");
+        }
+        if (!dto.getEndTime().isAfter(dto.getStartTime())) {
+            throw new RequestInvalidException("End time must be after start time");
+        }
+        if (dto.getPartySize() == null) {
+            throw new RequestInvalidException("Party size is required");
+        }
+
+        List<Room> vipRooms = roomRepository.findByRoomType(RoomType.VIP_ROOM);
+        if (vipRooms.isEmpty()) {
+            return VipRoomRecommendationResponseDTO.builder()
+                    .partySize(dto.getPartySize())
+                    .startTime(dto.getStartTime())
+                    .endTime(dto.getEndTime())
+                    .totalRooms(0)
+                    .availableRooms(0)
+                    .recommendedRoomId(null)
+                    .rooms(Collections.emptyList())
+                    .build();
+        }
+
+        List<Long> vipRoomIds = vipRooms.stream().map(Room::getId).toList();
+
+        List<ReservationStatus> blockingStatuses = List.of(
+                ReservationStatus.PENDING,
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.IN_PROGRESS
+        );
+
+        List<ReservationRoom> conflicts = reservationRoomRepository.findConflictingReservations(
+                vipRoomIds,
+                blockingStatuses,
+                dto.getStartTime(),
+                dto.getEndTime()
+        );
+
+        Set<Long> conflictedRoomIds = conflicts.stream()
+                .map(c -> c.getRoom().getId())
+                .collect(Collectors.toSet());
+
+        List<VipRoomRecommendationResponseDTO.VipRoomOptionDTO> options = new ArrayList<>();
+        for (Room room : vipRooms) {
+            boolean isAvailable;
+            String unavailabilityReason = null;
+
+            if (room.getRoomStatus() == RoomStatus.MAINTENANCE) {
+                isAvailable = false;
+                unavailabilityReason = "Room is currently under maintenance";
+            } else if (conflictedRoomIds.contains(room.getId())) {
+                isAvailable = false;
+                unavailabilityReason = "Reserved for the requested time slot";
+            } else {
+                isAvailable = true;
+            }
+
+            options.add(VipRoomRecommendationResponseDTO.VipRoomOptionDTO.builder()
+                    .id(room.getId())
+                    .roomName(room.getRoomName())
+                    .roomType(room.getRoomType())
+                    .capacity(room.getCapacity())
+                    .price(room.getPrice())
+                    .roomStatus(room.getRoomStatus())
+                    .description(room.getDescription())
+                    .isAvailable(isAvailable)
+                    .isRecommended(false)
+                    .unavailabilityReason(unavailabilityReason)
+                    .build());
+        }
+
+        // Minimal deterministic ordering:
+        // 1. Available rooms first
+        // 2. Capacity ascending
+        // 3. Price ascending
+        // 4. Room ID ascending
+        options.sort(Comparator
+                .comparing(VipRoomRecommendationResponseDTO.VipRoomOptionDTO::isAvailable, Comparator.reverseOrder())
+                .thenComparingInt(VipRoomRecommendationResponseDTO.VipRoomOptionDTO::getCapacity)
+                .thenComparingDouble(VipRoomRecommendationResponseDTO.VipRoomOptionDTO::getPrice)
+                .thenComparing(VipRoomRecommendationResponseDTO.VipRoomOptionDTO::getId));
+
+        Long recommendedRoomId = null;
+        for (VipRoomRecommendationResponseDTO.VipRoomOptionDTO opt : options) {
+            if (opt.isAvailable()) {
+                opt.setRecommended(true);
+                recommendedRoomId = opt.getId();
+                break;
+            }
+        }
+
+        long availableCount = options.stream().filter(VipRoomRecommendationResponseDTO.VipRoomOptionDTO::isAvailable).count();
+
+        return VipRoomRecommendationResponseDTO.builder()
+                .partySize(dto.getPartySize())
+                .startTime(dto.getStartTime())
+                .endTime(dto.getEndTime())
+                .totalRooms(options.size())
+                .availableRooms((int) availableCount)
+                .recommendedRoomId(recommendedRoomId)
+                .rooms(options)
+                .build();
     }
 
     @Transactional

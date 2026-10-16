@@ -14,7 +14,9 @@ import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
 import com.restaurant.ireservation.dto.request.RoomReservationBookingRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.VipRoomRecommendationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
+import com.restaurant.ireservation.dto.response.VipRoomRecommendationResponseDTO;
 import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
@@ -2512,5 +2514,211 @@ class ReservationServiceTest {
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
                 () -> reservationService.createRoomReservation(bookingDTO, "customer1"));
         assertEquals("Room General Dining Room is not a VIP room", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("VIP Recommendation: available rooms ordered by capacity ascending then price ascending")
+    void getVipRoomRecommendations_success_deterministicOrdering() {
+        Room r1 = Room.builder().roomName("Grand VIP").roomType(RoomType.VIP_ROOM).capacity(20).price(800.0).roomStatus(RoomStatus.AVAILABLE).build();
+        r1.setId(1L);
+        Room r2 = Room.builder().roomName("Cozy VIP").roomType(RoomType.VIP_ROOM).capacity(10).price(500.0).roomStatus(RoomStatus.AVAILABLE).build();
+        r2.setId(2L);
+        Room r3 = Room.builder().roomName("Medium VIP B").roomType(RoomType.VIP_ROOM).capacity(12).price(400.0).roomStatus(RoomStatus.AVAILABLE).build();
+        r3.setId(3L);
+        Room r4 = Room.builder().roomName("Medium VIP A").roomType(RoomType.VIP_ROOM).capacity(12).price(350.0).roomStatus(RoomStatus.AVAILABLE).build();
+        r4.setId(4L);
+
+        when(roomRepository.findByRoomType(RoomType.VIP_ROOM)).thenReturn(List.of(r1, r2, r3, r4));
+        when(reservationRoomRepository.findConflictingReservations(anyList(), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(Collections.emptyList());
+
+        VipRoomRecommendationRequestDTO dto = VipRoomRecommendationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+
+        VipRoomRecommendationResponseDTO response = reservationService.getVipRoomRecommendations(dto);
+
+        assertNotNull(response);
+        assertEquals(4, response.getTotalRooms());
+        assertEquals(4, response.getAvailableRooms());
+        assertEquals(2L, response.getRecommendedRoomId());
+
+        List<VipRoomRecommendationResponseDTO.VipRoomOptionDTO> rooms = response.getRooms();
+        assertEquals(4, rooms.size());
+        assertEquals(2L, rooms.get(0).getId()); // capacity 10
+        assertTrue(rooms.get(0).isRecommended());
+        assertEquals(4L, rooms.get(1).getId()); // capacity 12, price 350
+        assertFalse(rooms.get(1).isRecommended());
+        assertEquals(3L, rooms.get(2).getId()); // capacity 12, price 400
+        assertFalse(rooms.get(2).isRecommended());
+        assertEquals(1L, rooms.get(3).getId()); // capacity 20, price 800
+        assertFalse(rooms.get(3).isRecommended());
+    }
+
+    @Test
+    @DisplayName("VIP Recommendation: maintenance room takes priority over conflict and marked unavailable")
+    void getVipRoomRecommendations_maintenancePrecedenceOverConflict() {
+        Room maintenanceRoom = Room.builder()
+                .roomName("Maintenance Suite")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(12)
+                .price(450.0)
+                .roomStatus(RoomStatus.MAINTENANCE)
+                .build();
+        maintenanceRoom.setId(10L);
+
+        Reservation conflictRes = Reservation.builder()
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        ReservationRoom conflict = ReservationRoom.builder()
+                .room(maintenanceRoom)
+                .reservation(conflictRes)
+                .build();
+
+        when(roomRepository.findByRoomType(RoomType.VIP_ROOM)).thenReturn(List.of(maintenanceRoom));
+        when(reservationRoomRepository.findConflictingReservations(anyList(), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(List.of(conflict));
+
+        VipRoomRecommendationRequestDTO dto = VipRoomRecommendationRequestDTO.builder()
+                .partySize(PartySize.MEDIUM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+
+        VipRoomRecommendationResponseDTO response = reservationService.getVipRoomRecommendations(dto);
+
+        assertNotNull(response);
+        assertEquals(1, response.getTotalRooms());
+        assertEquals(0, response.getAvailableRooms());
+        assertNull(response.getRecommendedRoomId());
+
+        VipRoomRecommendationResponseDTO.VipRoomOptionDTO opt = response.getRooms().get(0);
+        assertFalse(opt.isAvailable());
+        assertFalse(opt.isRecommended());
+        assertEquals("Room is currently under maintenance", opt.getUnavailabilityReason());
+    }
+
+    @Test
+    @DisplayName("VIP Recommendation: conflicting reservation marked unavailable with conflict reason")
+    void getVipRoomRecommendations_conflictingReservation_markedUnavailable() {
+        Room bookedRoom = Room.builder()
+                .roomName("Booked Suite")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(14)
+                .price(550.0)
+                .roomStatus(RoomStatus.AVAILABLE)
+                .build();
+        bookedRoom.setId(11L);
+
+        Reservation conflictRes = Reservation.builder()
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        ReservationRoom conflict = ReservationRoom.builder()
+                .room(bookedRoom)
+                .reservation(conflictRes)
+                .build();
+
+        when(roomRepository.findByRoomType(RoomType.VIP_ROOM)).thenReturn(List.of(bookedRoom));
+        when(reservationRoomRepository.findConflictingReservations(anyList(), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(List.of(conflict));
+
+        VipRoomRecommendationRequestDTO dto = VipRoomRecommendationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+
+        VipRoomRecommendationResponseDTO response = reservationService.getVipRoomRecommendations(dto);
+
+        assertNotNull(response);
+        assertEquals(1, response.getTotalRooms());
+        assertEquals(0, response.getAvailableRooms());
+        assertNull(response.getRecommendedRoomId());
+
+        VipRoomRecommendationResponseDTO.VipRoomOptionDTO opt = response.getRooms().get(0);
+        assertFalse(opt.isAvailable());
+        assertFalse(opt.isRecommended());
+        assertEquals("Reserved for the requested time slot", opt.getUnavailabilityReason());
+    }
+
+    @Test
+    @DisplayName("VIP Recommendation: non-blocking reservation status leaves room available")
+    void getVipRoomRecommendations_nonBlockingStatus_remainsAvailable() {
+        Room room = Room.builder()
+                .roomName("Available Suite")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(15)
+                .price(500.0)
+                .roomStatus(RoomStatus.AVAILABLE)
+                .build();
+        room.setId(15L);
+
+        when(roomRepository.findByRoomType(RoomType.VIP_ROOM)).thenReturn(List.of(room));
+        when(reservationRoomRepository.findConflictingReservations(anyList(), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(Collections.emptyList());
+
+        VipRoomRecommendationRequestDTO dto = VipRoomRecommendationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+
+        VipRoomRecommendationResponseDTO response = reservationService.getVipRoomRecommendations(dto);
+
+        assertNotNull(response);
+        assertEquals(1, response.getAvailableRooms());
+        VipRoomRecommendationResponseDTO.VipRoomOptionDTO opt = response.getRooms().get(0);
+        assertTrue(opt.isAvailable());
+        assertTrue(opt.isRecommended());
+        assertNull(opt.getUnavailabilityReason());
+    }
+
+    @Test
+    @DisplayName("VIP Recommendation: endTime <= startTime throws RequestInvalidException")
+    void getVipRoomRecommendations_endTimeBeforeOrEqualStartTime_throwsRequestInvalidException() {
+        VipRoomRecommendationRequestDTO dto = VipRoomRecommendationRequestDTO.builder()
+                .partySize(PartySize.MEDIUM)
+                .startTime(endTime)
+                .endTime(startTime) // endTime before startTime
+                .build();
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.getVipRoomRecommendations(dto));
+        assertEquals("End time must be after start time", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("VIP Recommendation: non-VIP rooms excluded from results")
+    void getVipRoomRecommendations_nonVipRoomsExcluded() {
+        Room vipRoom = Room.builder()
+                .roomName("VIP Penthouse")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(16)
+                .price(700.0)
+                .roomStatus(RoomStatus.AVAILABLE)
+                .build();
+        vipRoom.setId(33L);
+
+        when(roomRepository.findByRoomType(RoomType.VIP_ROOM)).thenReturn(List.of(vipRoom));
+        when(reservationRoomRepository.findConflictingReservations(anyList(), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(Collections.emptyList());
+
+        VipRoomRecommendationRequestDTO dto = VipRoomRecommendationRequestDTO.builder()
+                .partySize(PartySize.XLARGE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+
+        VipRoomRecommendationResponseDTO response = reservationService.getVipRoomRecommendations(dto);
+
+        assertNotNull(response);
+        assertEquals(1, response.getRooms().size());
+        assertEquals(RoomType.VIP_ROOM, response.getRooms().get(0).getRoomType());
     }
 }
