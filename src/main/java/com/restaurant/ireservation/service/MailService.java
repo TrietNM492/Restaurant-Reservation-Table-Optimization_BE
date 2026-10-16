@@ -1,5 +1,7 @@
 package com.restaurant.ireservation.service;
 
+import com.restaurant.ireservation.domain.entity.Notification;
+import com.restaurant.ireservation.domain.entity.Reservation;
 import com.restaurant.ireservation.dto.response.UserResonseDTO;
 import com.restaurant.ireservation.util.constants.Constants;
 import jakarta.mail.MessagingException;
@@ -23,6 +25,8 @@ import org.thymeleaf.spring6.SpringTemplateEngine;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 @Service
@@ -168,6 +172,32 @@ public class MailService {
 
         // 4. Send the email
         javaMailSender.send(message);
+    }
+
+    public void sendReservationReminder(Notification notification) throws Exception {
+        Reservation reservation = notification.getReservation();
+        String to = notification.getUser().getEmail();
+        String customerName = notification.getUser().getFullname();
+
+        ZoneId restaurantZone = ZoneId.of("Asia/Ho_Chi_Minh");
+
+        String startTime = reservation.getStartTime()
+                .atZone(restaurantZone)
+                .format(DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy", Locale.forLanguageTag(Constants.DEFAULT_LANGUAGE)));
+        Context context = new Context(new Locale("en", "EN"));
+        context.setVariable("customerName", customerName);
+        context.setVariable("startTime", startTime);
+        context.setVariable("reservationId", reservation.getReservationNo());
+        String html = springTemplateEngine.process("email/reminder-notification", context);
+        MimeMessage message= javaMailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
+        helper.setFrom(from);
+        helper.setTo(to);
+        helper.setSubject(notification.getTitle());
+        helper.setText(html, true);
+        javaMailSender.send(message);
+
+
     }
 
 
