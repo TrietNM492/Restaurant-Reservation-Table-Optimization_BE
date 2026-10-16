@@ -5,6 +5,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.restaurant.ireservation.domain.enumerations.PartySize;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.ReservationType;
+import com.restaurant.ireservation.domain.enumerations.RoomType;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
@@ -623,5 +624,132 @@ class ReservationControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("Forbidden"))
                 .andExpect(jsonPath("$.message").value("User not authenticated"));
+    }
+
+    @Test
+    @DisplayName("VIP-CTRL-01: Valid VIP room reservation request returns HTTP 201 Created")
+    void createReservation_vipRoom_validRequest_returns201() throws Exception {
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        CreateReservationRequestDTO request = CreateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(10L))
+                .note("VIP celebration")
+                .build();
+
+        ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
+                .id(100L)
+                .reservationNo("RES-VIP-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.VIP_ROOM)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .rooms(List.of(ReservationResponseDTO.RoomSummaryDTO.builder()
+                        .id(10L)
+                        .roomName("Diamond Suite")
+                        .roomType(RoomType.VIP_ROOM)
+                        .capacity(10)
+                        .build()))
+                .createdBy("test_customer")
+                .build();
+
+        when(reservationService.createReservation(any(CreateReservationRequestDTO.class), eq("test_customer")))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(post("/api/v1/reservations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(100))
+                .andExpect(jsonPath("$.reservationType").value("VIP_ROOM"))
+                .andExpect(jsonPath("$.rooms[0].roomName").value("Diamond Suite"));
+    }
+
+    @Test
+    @DisplayName("VIP-CTRL-02: VIP room reservation with empty roomIds returns HTTP 400 Validation Failed")
+    void createReservation_vipRoom_emptyRoomIds_returns400() throws Exception {
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        CreateReservationRequestDTO request = CreateReservationRequestDTO.builder()
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(Collections.emptyList())
+                .build();
+
+        mockMvc.perform(post("/api/v1/reservations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    @Test
+    @DisplayName("VIP-CTRL-03: Valid VIP room update request returns HTTP 200 OK")
+    void updateReservation_vipRoom_validRequest_returns200() throws Exception {
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        UpdateReservationRequestDTO request = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.MEDIUM)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(12L))
+                .build();
+
+        ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
+                .id(100L)
+                .reservationNo("RES-VIP-001")
+                .partySize(PartySize.MEDIUM)
+                .reservationType(ReservationType.VIP_ROOM)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .rooms(List.of(ReservationResponseDTO.RoomSummaryDTO.builder()
+                        .id(12L)
+                        .roomName("Platinum Suite")
+                        .build()))
+                .createdBy("test_customer")
+                .build();
+
+        when(reservationService.updateReservation(eq(100L), any(UpdateReservationRequestDTO.class), eq("test_customer")))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(put("/api/v1/reservations/100")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(100))
+                .andExpect(jsonPath("$.reservationType").value("VIP_ROOM"))
+                .andExpect(jsonPath("$.rooms[0].roomName").value("Platinum Suite"));
+    }
+
+    @Test
+    @DisplayName("VIP-CTRL-04: VIP room update with empty roomIds returns HTTP 400 Validation Failed")
+    void updateReservation_vipRoom_emptyRoomIds_returns400() throws Exception {
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        UpdateReservationRequestDTO request = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.MEDIUM)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(Collections.emptyList())
+                .build();
+
+        mockMvc.perform(put("/api/v1/reservations/100")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
     }
 }
