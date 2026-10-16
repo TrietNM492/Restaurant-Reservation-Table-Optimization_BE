@@ -12,6 +12,7 @@ import com.restaurant.ireservation.domain.enumerations.RoomStatus;
 import com.restaurant.ireservation.domain.enumerations.RoomType;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.RoomReservationBookingRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
 import com.restaurant.ireservation.error.RequestInvalidException;
@@ -2426,5 +2427,78 @@ class ReservationServiceTest {
         assertEquals(1, res.getRooms().size());
         assertEquals("VIP Palace", res.getRooms().get(0).getRoomName());
         assertEquals(500.0, res.getRooms().get(0).getPrice());
+    }
+
+    @Test
+    @DisplayName("Dedicated Room Reservation: createRoomReservation successfully creates VIP room reservation")
+    void createRoomReservation_success() {
+        Room vipRoom = Room.builder()
+                .roomName("Presidential Suite")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(12)
+                .price(600.0)
+                .roomStatus(RoomStatus.AVAILABLE)
+                .build();
+        vipRoom.setId(88L);
+
+        RoomReservationBookingRequestDTO bookingDTO = RoomReservationBookingRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(88L))
+                .note("Executive meeting")
+                .build();
+
+        when(roomRepository.findAllById(List.of(88L))).thenReturn(List.of(vipRoom));
+        when(reservationRoomRepository.findConflictingReservations(eq(List.of(88L)), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(Collections.emptyList());
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.increment(anyString())).thenReturn(5L);
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> {
+            Reservation r = invocation.getArgument(0);
+            r.setId(888L);
+            return r;
+        });
+
+        ReservationResponseDTO response = reservationService.createRoomReservation(bookingDTO, "customer1");
+
+        assertNotNull(response);
+        assertEquals(888L, response.getId());
+        assertEquals(ReservationType.VIP_ROOM, response.getReservationType());
+        assertEquals(ReservationStatus.PENDING, response.getReservationStatus());
+        assertEquals("customer1", response.getCreatedBy());
+        assertEquals("Executive meeting", response.getNote());
+        assertTrue(response.getTables().isEmpty());
+        assertEquals(1, response.getRooms().size());
+        assertEquals(88L, response.getRooms().get(0).getId());
+        assertEquals("Presidential Suite", response.getRooms().get(0).getRoomName());
+
+        verify(reservationRoomRepository).saveAll(anyList());
+        verify(reservationTableRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("Dedicated Room Reservation: createRoomReservation rejects non-VIP room")
+    void createRoomReservation_rejectNonVipRoom() {
+        Room standardRoom = Room.builder()
+                .roomName("General Dining Room")
+                .roomType(RoomType.PRIVATE_ROOM)
+                .capacity(8)
+                .roomStatus(RoomStatus.AVAILABLE)
+                .build();
+        standardRoom.setId(99L);
+
+        RoomReservationBookingRequestDTO bookingDTO = RoomReservationBookingRequestDTO.builder()
+                .partySize(PartySize.MEDIUM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(99L))
+                .build();
+
+        when(roomRepository.findAllById(List.of(99L))).thenReturn(List.of(standardRoom));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.createRoomReservation(bookingDTO, "customer1"));
+        assertEquals("Room General Dining Room is not a VIP room", ex.getMessage());
     }
 }

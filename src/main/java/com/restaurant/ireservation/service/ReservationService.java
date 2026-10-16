@@ -11,6 +11,7 @@ import com.restaurant.ireservation.domain.enumerations.RoomStatus;
 import com.restaurant.ireservation.domain.enumerations.RoomType;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.RoomReservationBookingRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
 import com.restaurant.ireservation.error.RequestInvalidException;
@@ -191,6 +192,19 @@ public class ReservationService {
         }
 
         return mapToResponseDTO(savedReservation, tables, rooms);
+    }
+
+    @Transactional
+    public ReservationResponseDTO createRoomReservation(RoomReservationBookingRequestDTO dto, String username) {
+        CreateReservationRequestDTO createDto = CreateReservationRequestDTO.builder()
+                .partySize(dto.getPartySize())
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(dto.getStartTime())
+                .endTime(dto.getEndTime())
+                .roomIds(dto.getRoomIds())
+                .note(dto.getNote())
+                .build();
+        return createReservation(createDto, username);
     }
 
     @Transactional
