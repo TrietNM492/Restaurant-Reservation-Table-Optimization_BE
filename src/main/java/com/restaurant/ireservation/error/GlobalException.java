@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class GlobalException {
@@ -114,6 +115,28 @@ public class GlobalException {
         res.setError("Forbidden");
         res.setTimestamp(LocalDateTime.now());
 
+        return ResponseEntity.status(statusCode).body(res);
+    }
+
+    @ExceptionHandler(value = {FileUploadException.class})
+    public ResponseEntity<RestResponse<?>> handleFileUploadException(FileUploadException e) {
+        int statusCode = HttpStatus.INTERNAL_SERVER_ERROR.value();
+        var res = new RestResponse<>();
+        res.setStatusCode(statusCode);
+        res.setMessage(e.getMessage());
+        res.setError("Internal Server Error");
+        res.setTimestamp(LocalDateTime.now());
+        return ResponseEntity.status(statusCode).body(res);
+    }
+
+    @ExceptionHandler(value = {MaxUploadSizeExceededException.class})
+    public ResponseEntity<RestResponse<?>> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
+        int statusCode = HttpStatus.BAD_REQUEST.value();
+        var res = new RestResponse<>();
+        res.setStatusCode(statusCode);
+        res.setMessage(e.getMessage() != null ? e.getMessage() : "Maximum upload size exceeded");
+        res.setError("Bad Request");
+        res.setTimestamp(LocalDateTime.now());
         return ResponseEntity.status(statusCode).body(res);
     }
 }
