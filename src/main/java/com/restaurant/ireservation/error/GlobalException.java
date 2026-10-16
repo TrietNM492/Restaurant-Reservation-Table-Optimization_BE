@@ -116,4 +116,15 @@ public class GlobalException {
 
         return ResponseEntity.status(statusCode).body(res);
     }
+
+    @ExceptionHandler(value = {UnauthorizeException.class})
+    public ResponseEntity<RestResponse<?>> handleUnauthorizeException(UnauthorizeException e) {
+        int statusCode = HttpStatus.UNAUTHORIZED.value();
+        var res = new RestResponse<>();
+        res.setStatusCode(statusCode);
+        res.setMessage(e.getMessage());
+        res.setError("Unauthorized");
+        res.setTimestamp(LocalDateTime.now());
+        return ResponseEntity.status(statusCode).body(res);
+    }
 }
