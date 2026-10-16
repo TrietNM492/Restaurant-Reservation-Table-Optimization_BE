@@ -3,6 +3,7 @@ package com.restaurant.ireservation.service;
 import com.restaurant.ireservation.domain.entity.*;
 import com.restaurant.ireservation.domain.enumerations.OrderKitchenStatus;
 import com.restaurant.ireservation.dto.request.KitchenStatusUpdateRequest;
+import com.restaurant.ireservation.dto.response.KitchenDashboardDTO;
 import com.restaurant.ireservation.dto.response.KitchenOrderItemDTO;
 import com.restaurant.ireservation.dto.response.KitchenQueueResponseDTO;
 import com.restaurant.ireservation.error.RequestInvalidException;
@@ -21,12 +22,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Module: Kitchen Queue Tracking [3] & Kitchen Status Update [2]
+ * Module: Kitchen Queue Tracking [3] & Kitchen Status Update [2] & Kitchen Load Monitoring [2]
  */
 @Service
 @RequiredArgsConstructor
@@ -70,6 +73,72 @@ public class KitchenService {
         KitchenOrder kitchenOrder = kitchenOrderRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Kitchen order not found with ID: " + id));
         return mapToQueueResponseDTO(kitchenOrder);
+    }
+
+    /**
+     * FR-030: Kitchen Load Monitoring
+     * Theo dõi: Pending Orders | Average Preparation Time | Kitchen Utilization
+     */
+    @Transactional(readOnly = true)
+    public KitchenDashboardDTO getKitchenDashboard() {
+        // --- Pending Orders ---
+        List<OrderKitchenStatus> pendingStatuses = List.of(
+                OrderKitchenStatus.QUEUED, OrderKitchenStatus.PENDING, OrderKitchenStatus.ON_HOLD);
+        long pendingCount = kitchenOrderRepository.countByStatusIn(pendingStatuses);
+
+        // --- Preparing ---
+        List<OrderKitchenStatus> preparingStatuses = List.of(
+                OrderKitchenStatus.COOKING, OrderKitchenStatus.PREPARING);
+        long preparingCount = kitchenOrderRepository.countByStatusIn(preparingStatuses);
+
+        // --- Ready ---
+        List<OrderKitchenStatus> readyStatuses = List.of(
+                OrderKitchenStatus.READY, OrderKitchenStatus.DONE);
+        long readyCount = kitchenOrderRepository.countByStatusIn(readyStatuses);
+
+        long totalActive = pendingCount + preparingCount + readyCount;
+
+        // --- Average Preparation Time (FR-030) ---
+        // Tính trong Java bằng Duration.between() để tránh lỗi JPQL EXTRACT dialect
+        List<OrderKitchenStatus> completedStatuses = List.of(
+                OrderKitchenStatus.READY, OrderKitchenStatus.DONE,
+                OrderKitchenStatus.SERVED, OrderKitchenStatus.SERVCED);
+        List<KitchenOrder> completedOrders = kitchenOrderRepository.findCompletedWithTimestamps(completedStatuses);
+        Double avgMinutes = null;
+        if (!completedOrders.isEmpty()) {
+            double totalSeconds = completedOrders.stream()
+                    .mapToLong(ko -> Duration.between(ko.getActualStartTime(), ko.getActualReadyTime()).toSeconds())
+                    .average()
+                    .orElse(0.0);
+            avgMinutes = totalSeconds / 60.0;
+        }
+
+        // --- Kitchen Utilization (FR-030) ---
+        // Quy ước: bếp tối đa xử lý đồng thời 20 đơn; tính theo đơn đang chế biến + ready
+        final int MAX_KITCHEN_CAPACITY = 20;
+        double utilization = Math.min(100.0, (preparingCount + readyCount) * 100.0 / MAX_KITCHEN_CAPACITY);
+
+        // --- Breakdown by status ---
+        List<Object[]> grouped = kitchenOrderRepository.countGroupedByStatus();
+        Map<String, Long> countByStatus = new LinkedHashMap<>();
+        for (Object[] row : grouped) {
+            String statusName = row[0] != null ? row[0].toString() : "UNKNOWN";
+            Long count = row[1] instanceof Number ? ((Number) row[1]).longValue() : 0L;
+            countByStatus.put(statusName, count);
+        }
+
+        log.info("[Kitchen Dashboard] pending={}, preparing={}, ready={}, utilization={}%",
+                pendingCount, preparingCount, readyCount, String.format("%.1f", utilization));
+
+        return KitchenDashboardDTO.builder()
+                .pendingOrdersCount(pendingCount)
+                .preparingOrdersCount(preparingCount)
+                .readyOrdersCount(readyCount)
+                .totalActiveOrdersCount(totalActive)
+                .averagePrepTimeMinutes(avgMinutes)
+                .kitchenUtilizationPercent(utilization)
+                .orderCountByStatus(countByStatus)
+                .build();
     }
 
     /**

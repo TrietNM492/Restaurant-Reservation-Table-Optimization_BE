@@ -50,4 +50,23 @@ public interface KitchenOrderRepository extends JpaRepository<KitchenOrder, Long
             @Param("isVip") Boolean isVip,
             @Param("search") String search
     );
+
+    /**
+     * FR-030: Average Preparation Time
+     * Lấy các đơn đã hoàn thành có đủ actualStartTime và actualReadyTime.
+     * Tính toán trung bình được thực hiện phía Java để tránh lỗi JPQL dialect.
+     */
+    @Query("SELECT ko FROM KitchenOrder ko " +
+           "WHERE ko.actualStartTime IS NOT NULL AND ko.actualReadyTime IS NOT NULL " +
+           "AND ko.status IN :completedStatuses")
+    List<KitchenOrder> findCompletedWithTimestamps(
+            @Param("completedStatuses") Collection<OrderKitchenStatus> completedStatuses
+    );
+
+    /**
+     * FR-030: Kitchen Utilization — đếm số đơn theo từng trạng thái để tính tải bếp.
+     * Trả về list [status, count].
+     */
+    @Query("SELECT ko.status, COUNT(ko) FROM KitchenOrder ko GROUP BY ko.status")
+    List<Object[]> countGroupedByStatus();
 }
