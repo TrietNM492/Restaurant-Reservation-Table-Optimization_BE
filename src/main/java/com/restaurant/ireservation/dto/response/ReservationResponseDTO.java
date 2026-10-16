@@ -26,6 +26,7 @@ public class ReservationResponseDTO {
     Instant endTime;
     String note;
     List<TableSummaryDTO> tables;
+    List<RoomSummaryDTO> rooms;
     String createdBy;
     Instant createdDate;
 
@@ -39,5 +40,19 @@ public class ReservationResponseDTO {
         Long id;
         Integer tableNumber;
         int capacity;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @FieldDefaults(level = AccessLevel.PRIVATE)
+    public static class RoomSummaryDTO {
+        Long id;
+        String roomName;
+        com.restaurant.ireservation.domain.enumerations.RoomType roomType;
+        int capacity;
+        double price;
     }
 }

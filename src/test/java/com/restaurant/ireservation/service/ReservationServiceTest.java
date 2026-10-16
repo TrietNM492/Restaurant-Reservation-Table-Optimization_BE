@@ -1,11 +1,15 @@
 package com.restaurant.ireservation.service;
 
 import com.restaurant.ireservation.domain.entity.Reservation;
+import com.restaurant.ireservation.domain.entity.ReservationRoom;
 import com.restaurant.ireservation.domain.entity.ReservationTable;
 import com.restaurant.ireservation.domain.entity.RestaurantTable;
+import com.restaurant.ireservation.domain.entity.Room;
 import com.restaurant.ireservation.domain.enumerations.PartySize;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.ReservationType;
+import com.restaurant.ireservation.domain.enumerations.RoomStatus;
+import com.restaurant.ireservation.domain.enumerations.RoomType;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
@@ -17,8 +21,10 @@ import org.springframework.security.access.AccessDeniedException;
 
 import java.util.Optional;
 import com.restaurant.ireservation.repository.ReservationRepository;
+import com.restaurant.ireservation.repository.ReservationRoomRepository;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
 import com.restaurant.ireservation.repository.RestaurantTableRepository;
+import com.restaurant.ireservation.repository.RoomRepository;
 import com.restaurant.ireservation.security.AuthoritiesConstants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,6 +65,12 @@ class ReservationServiceTest {
 
     @Mock
     RestaurantTableRepository restaurantTableRepository;
+
+    @Mock
+    ReservationRoomRepository reservationRoomRepository;
+
+    @Mock
+    RoomRepository roomRepository;
 
     @Mock
     StringRedisTemplate stringRedisTemplate;
@@ -230,11 +242,11 @@ class ReservationServiceTest {
     }
 
     @Test
-    @DisplayName("TC-07: Non-TABLE reservation type in Phase 1 should throw RequestInvalidException")
+    @DisplayName("TC-07: Non-TABLE and non-VIP_ROOM reservation type should throw RequestInvalidException")
     void createReservation_fail_unsupportedReservationType() {
         CreateReservationRequestDTO dto = CreateReservationRequestDTO.builder()
                 .partySize(PartySize.SMALL)
-                .reservationType(ReservationType.VIP_ROOM)
+                .reservationType(ReservationType.PRIVATE_ROOM)
                 .startTime(startTime)
                 .endTime(endTime)
                 .tableIds(List.of(1L))
@@ -242,7 +254,7 @@ class ReservationServiceTest {
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
                 () -> reservationService.createReservation(dto, "customer1"));
-        assertEquals("Only TABLE reservations are supported in Phase 1", ex.getMessage());
+        assertEquals("Only TABLE and VIP_ROOM reservations are supported", ex.getMessage());
     }
 
     @Test
@@ -891,7 +903,7 @@ class ReservationServiceTest {
 
         UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
                 .partySize(PartySize.SMALL)
-                .reservationType(ReservationType.VIP_ROOM)
+                .reservationType(ReservationType.PRIVATE_ROOM)
                 .startTime(startTime)
                 .endTime(endTime)
                 .tableIds(List.of(1L))
@@ -901,7 +913,7 @@ class ReservationServiceTest {
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
                 () -> reservationService.updateReservation(reservationId, dto, "customer1"));
-        assertEquals("Only TABLE reservations are supported", ex.getMessage());
+        assertEquals("Only TABLE and VIP_ROOM reservations are supported", ex.getMessage());
     }
 
     @Test
@@ -2077,5 +2089,354 @@ class ReservationServiceTest {
         assertThrows(AccessDeniedException.class, () -> reservationService.getMyReservations(null));
         assertThrows(AccessDeniedException.class, () -> reservationService.getMyReservations("   "));
         verify(reservationRepository, never()).findByCreatedBy(anyString());
+    }
+
+    // ==========================================
+    // VIP Room Reservation Tests [4]
+    // ==========================================
+
+    @Test
+    @DisplayName("VIP-TC-01: Successfully create VIP room reservation")
+    void createReservation_vipRoom_success() {
+        Room vipRoom = Room.builder()
+                .roomName("VIP Suite 1")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(12)
+                .price(300.0)
+                .roomStatus(RoomStatus.AVAILABLE)
+                .build();
+        vipRoom.setId(10L);
+
+        CreateReservationRequestDTO dto = CreateReservationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(10L))
+                .note("Executive lunch")
+                .build();
+
+        when(roomRepository.findAllById(List.of(10L))).thenReturn(List.of(vipRoom));
+        when(reservationRoomRepository.findConflictingReservations(eq(List.of(10L)), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(Collections.emptyList());
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.increment(anyString())).thenReturn(1L);
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> {
+            Reservation r = invocation.getArgument(0);
+            r.setId(100L);
+            return r;
+        });
+
+        ReservationResponseDTO response = reservationService.createReservation(dto, "customer1");
+
+        assertNotNull(response);
+        assertEquals(100L, response.getId());
+        assertEquals(ReservationType.VIP_ROOM, response.getReservationType());
+        assertEquals(ReservationStatus.PENDING, response.getReservationStatus());
+        assertEquals("customer1", response.getCreatedBy());
+        assertTrue(response.getTables().isEmpty());
+        assertEquals(1, response.getRooms().size());
+        assertEquals(10L, response.getRooms().get(0).getId());
+        assertEquals("VIP Suite 1", response.getRooms().get(0).getRoomName());
+        assertEquals(300.0, response.getRooms().get(0).getPrice());
+
+        verify(reservationRoomRepository).saveAll(anyList());
+        verify(reservationTableRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("VIP-TC-02: Missing roomIds in VIP reservation should throw RequestInvalidException")
+    void createReservation_vipRoom_fail_noRoomIds() {
+        CreateReservationRequestDTO dto = CreateReservationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(null)
+                .build();
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.createReservation(dto, "customer1"));
+        assertEquals("At least one VIP room must be selected", ex.getMessage());
+
+        CreateReservationRequestDTO dtoEmpty = CreateReservationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(Collections.emptyList())
+                .build();
+
+        RequestInvalidException exEmpty = assertThrows(RequestInvalidException.class,
+                () -> reservationService.createReservation(dtoEmpty, "customer1"));
+        assertEquals("At least one VIP room must be selected", exEmpty.getMessage());
+    }
+
+    @Test
+    @DisplayName("VIP-TC-03: Duplicate roomIds in VIP reservation should throw RequestInvalidException")
+    void createReservation_vipRoom_fail_duplicateRoomIds() {
+        CreateReservationRequestDTO dto = CreateReservationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(10L, 10L))
+                .build();
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.createReservation(dto, "customer1"));
+        assertEquals("Duplicate room IDs in request", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("VIP-TC-04: Non-existent room in VIP reservation should throw ResourceNotFoundException")
+    void createReservation_vipRoom_fail_roomNotFound() {
+        CreateReservationRequestDTO dto = CreateReservationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(999L))
+                .build();
+
+        when(roomRepository.findAllById(List.of(999L))).thenReturn(Collections.emptyList());
+
+        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class,
+                () -> reservationService.createReservation(dto, "customer1"));
+        assertEquals("One or more requested rooms do not exist", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("VIP-TC-05: Non-VIP room type in VIP reservation should throw RequestInvalidException")
+    void createReservation_vipRoom_fail_notVipRoom() {
+        Room privateRoom = Room.builder()
+                .roomName("Private Room 1")
+                .roomType(RoomType.PRIVATE_ROOM)
+                .capacity(10)
+                .roomStatus(RoomStatus.AVAILABLE)
+                .build();
+        privateRoom.setId(20L);
+
+        CreateReservationRequestDTO dto = CreateReservationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(20L))
+                .build();
+
+        when(roomRepository.findAllById(List.of(20L))).thenReturn(List.of(privateRoom));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.createReservation(dto, "customer1"));
+        assertEquals("Room Private Room 1 is not a VIP room", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("VIP-TC-06: Maintenance room in VIP reservation should throw RequestInvalidException")
+    void createReservation_vipRoom_fail_maintenanceRoom() {
+        Room maintenanceRoom = Room.builder()
+                .roomName("VIP Diamond")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(15)
+                .roomStatus(RoomStatus.MAINTENANCE)
+                .build();
+        maintenanceRoom.setId(30L);
+
+        CreateReservationRequestDTO dto = CreateReservationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(30L))
+                .build();
+
+        when(roomRepository.findAllById(List.of(30L))).thenReturn(List.of(maintenanceRoom));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.createReservation(dto, "customer1"));
+        assertEquals("Room VIP Diamond is currently under maintenance", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("VIP-TC-07: Conflicting VIP room reservation should throw ReservationConflictException")
+    void createReservation_vipRoom_fail_timeConflict() {
+        Room vipRoom = Room.builder()
+                .roomName("VIP Diamond")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(15)
+                .roomStatus(RoomStatus.AVAILABLE)
+                .build();
+        vipRoom.setId(30L);
+
+        Reservation existingReservation = Reservation.builder()
+                .reservationNo("RES-EXISTING")
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .build();
+
+        ReservationRoom conflict = ReservationRoom.builder()
+                .reservation(existingReservation)
+                .room(vipRoom)
+                .build();
+
+        CreateReservationRequestDTO dto = CreateReservationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(30L))
+                .build();
+
+        when(roomRepository.findAllById(List.of(30L))).thenReturn(List.of(vipRoom));
+        when(reservationRoomRepository.findConflictingReservations(eq(List.of(30L)), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(List.of(conflict));
+
+        ReservationConflictException ex = assertThrows(ReservationConflictException.class,
+                () -> reservationService.createReservation(dto, "customer1"));
+        assertEquals("Room VIP Diamond is already reserved during the requested time slot", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("VIP-TC-08: Successfully update VIP room reservation")
+    void updateReservation_vipRoom_success() {
+        Long reservationId = 50L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-050")
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        Room newVipRoom = Room.builder()
+                .roomName("VIP Gold")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(16)
+                .price(400.0)
+                .roomStatus(RoomStatus.AVAILABLE)
+                .build();
+        newVipRoom.setId(12L);
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.XLARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(12L))
+                .note("Updated to VIP Gold")
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(roomRepository.findAllById(List.of(12L))).thenReturn(List.of(newVipRoom));
+        when(reservationRoomRepository.findConflictingReservationsExcludingReservation(eq(List.of(12L)), eq(reservationId), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReservationResponseDTO response = reservationService.updateReservation(reservationId, dto, "customer1");
+
+        assertNotNull(response);
+        assertEquals(PartySize.XLARGE, response.getPartySize());
+        assertEquals("Updated to VIP Gold", response.getNote());
+        assertEquals(1, response.getRooms().size());
+        assertEquals(12L, response.getRooms().get(0).getId());
+        assertEquals("VIP Gold", response.getRooms().get(0).getRoomName());
+
+        verify(reservationRoomRepository).deleteByReservationId(reservationId);
+        verify(reservationTableRepository).deleteByReservationId(reservationId);
+        verify(reservationRoomRepository).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("VIP-TC-09: Update VIP reservation conflict excluding self allows keeping same room")
+    void updateReservation_vipRoom_selfConflictExcluded() {
+        Long reservationId = 50L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-050")
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        Room sameRoom = Room.builder()
+                .roomName("VIP Gold")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(16)
+                .price(400.0)
+                .roomStatus(RoomStatus.AVAILABLE)
+                .build();
+        sameRoom.setId(12L);
+
+        UpdateReservationRequestDTO dto = UpdateReservationRequestDTO.builder()
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(startTime)
+                .endTime(endTime)
+                .roomIds(List.of(12L))
+                .note("Adjusted note only")
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(roomRepository.findAllById(List.of(12L))).thenReturn(List.of(sameRoom));
+        when(reservationRoomRepository.findConflictingReservationsExcludingReservation(eq(List.of(12L)), eq(reservationId), anyCollection(), eq(startTime), eq(endTime)))
+                .thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReservationResponseDTO response = reservationService.updateReservation(reservationId, dto, "customer1");
+
+        assertNotNull(response);
+        assertEquals("Adjusted note only", response.getNote());
+        assertEquals(1, response.getRooms().size());
+        assertEquals(12L, response.getRooms().get(0).getId());
+    }
+
+    @Test
+    @DisplayName("VIP-TC-10: getMyReservations correctly maps VIP room details")
+    void getMyReservations_vipRoom_success() {
+        Reservation vipRes = Reservation.builder()
+                .reservationNo("RES-VIP-01")
+                .partySize(PartySize.LARGE)
+                .reservationType(ReservationType.VIP_ROOM)
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        vipRes.setId(77L);
+        vipRes.setCreatedBy("customer1");
+
+        Room room = Room.builder()
+                .roomName("VIP Palace")
+                .roomType(RoomType.VIP_ROOM)
+                .capacity(20)
+                .price(500.0)
+                .build();
+        room.setId(5L);
+
+        ReservationRoom resRoom = ReservationRoom.builder()
+                .reservation(vipRes)
+                .room(room)
+                .build();
+
+        when(reservationRepository.findByCreatedBy("customer1")).thenReturn(List.of(vipRes));
+        when(reservationTableRepository.findByReservationId(77L)).thenReturn(Collections.emptyList());
+        when(reservationRoomRepository.findByReservationId(77L)).thenReturn(List.of(resRoom));
+
+        List<ReservationResponseDTO> result = reservationService.getMyReservations("customer1");
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        ReservationResponseDTO res = result.get(0);
+        assertEquals("RES-VIP-01", res.getReservationNo());
+        assertEquals(ReservationType.VIP_ROOM, res.getReservationType());
+        assertTrue(res.getTables().isEmpty());
+        assertEquals(1, res.getRooms().size());
+        assertEquals("VIP Palace", res.getRooms().get(0).getRoomName());
+        assertEquals(500.0, res.getRooms().get(0).getPrice());
     }
 }
