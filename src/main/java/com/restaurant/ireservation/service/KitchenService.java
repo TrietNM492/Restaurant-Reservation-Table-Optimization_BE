@@ -2,8 +2,10 @@ package com.restaurant.ireservation.service;
 
 import com.restaurant.ireservation.domain.entity.*;
 import com.restaurant.ireservation.domain.enumerations.OrderKitchenStatus;
+import com.restaurant.ireservation.dto.request.KitchenStatusUpdateRequest;
 import com.restaurant.ireservation.dto.response.KitchenOrderItemDTO;
 import com.restaurant.ireservation.dto.response.KitchenQueueResponseDTO;
+import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.KitchenOrderRepository;
 import com.restaurant.ireservation.repository.OrderItemRepository;
@@ -20,18 +22,22 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * Module: Kitchen Queue Tracking [3] & Kitchen Status Update [2]
+ */
 @Service
 @RequiredArgsConstructor
-@FieldDefaults(level = AccessLevel.PRIVATE)
+@FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 @Slf4j
 public class KitchenService {
 
-    final KitchenOrderRepository kitchenOrderRepository;
-    final OrderItemRepository orderItemRepository;
-    final ReservationTableRepository reservationTableRepository;
-    final ReservationRoomRepository reservationRoomRepository;
+    KitchenOrderRepository kitchenOrderRepository;
+    OrderItemRepository orderItemRepository;
+    ReservationTableRepository reservationTableRepository;
+    ReservationRoomRepository reservationRoomRepository;
 
     static final List<OrderKitchenStatus> ACTIVE_STATUSES = List.of(
             OrderKitchenStatus.QUEUED,
@@ -56,7 +62,7 @@ public class KitchenService {
 
         return orders.stream()
                 .map(this::mapToQueueResponseDTO)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -64,6 +70,58 @@ public class KitchenService {
         KitchenOrder kitchenOrder = kitchenOrderRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Kitchen order not found with ID: " + id));
         return mapToQueueResponseDTO(kitchenOrder);
+    }
+
+    /**
+     * Module: Kitchen Status Update [2]
+     * Cập nhật trạng thái chế biến của một đơn bếp.
+     * Tự động ghi nhận timestamp theo từng milestone trạng thái.
+     */
+    @Transactional
+    public KitchenQueueResponseDTO updateKitchenOrderStatus(Long id, KitchenStatusUpdateRequest request) {
+        KitchenOrder kitchenOrder = kitchenOrderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Kitchen order not found with ID: " + id));
+
+        OrderKitchenStatus currentStatus = kitchenOrder.getStatus();
+        OrderKitchenStatus newStatus = request.getStatus();
+
+        // Validate terminal states — cannot update once CANCELLED or SERVED
+        Set<OrderKitchenStatus> terminalStatuses = Set.of(
+                OrderKitchenStatus.CANCELLED, OrderKitchenStatus.CANCELED,
+                OrderKitchenStatus.SERVED, OrderKitchenStatus.SERVCED,
+                OrderKitchenStatus.REJECTED
+        );
+        if (terminalStatuses.contains(currentStatus)) {
+            throw new RequestInvalidException(
+                    "Cannot update status. Kitchen order is already in terminal state: " + currentStatus);
+        }
+
+        // Auto-set timestamps based on the new status milestone
+        Instant now = Instant.now();
+        if ((newStatus == OrderKitchenStatus.COOKING || newStatus == OrderKitchenStatus.PREPARING)
+                && kitchenOrder.getActualStartTime() == null) {
+            kitchenOrder.setActualStartTime(now);
+            log.info("[Kitchen] Order #{} started cooking at {}", id, now);
+        }
+        if ((newStatus == OrderKitchenStatus.DONE || newStatus == OrderKitchenStatus.READY)
+                && kitchenOrder.getActualReadyTime() == null) {
+            kitchenOrder.setActualReadyTime(now);
+            log.info("[Kitchen] Order #{} marked ready at {}", id, now);
+        }
+        if ((newStatus == OrderKitchenStatus.SERVED || newStatus == OrderKitchenStatus.SERVCED)
+                && kitchenOrder.getActualServedTime() == null) {
+            kitchenOrder.setActualServedTime(now);
+            log.info("[Kitchen] Order #{} served at {}", id, now);
+        }
+
+        kitchenOrder.setStatus(newStatus);
+        if (request.getNote() != null && !request.getNote().isBlank()) {
+            kitchenOrder.setNote(request.getNote());
+        }
+
+        KitchenOrder saved = kitchenOrderRepository.save(kitchenOrder);
+        log.info("[Kitchen] Order #{} status updated: {} -> {}", id, currentStatus, newStatus);
+        return mapToQueueResponseDTO(saved);
     }
 
     private KitchenQueueResponseDTO mapToQueueResponseDTO(KitchenOrder ko) {
