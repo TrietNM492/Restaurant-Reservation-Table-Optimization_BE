@@ -13,6 +13,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
@@ -30,6 +31,7 @@ public class NotificationController {
 
     @ResponseStatus(HttpStatus.OK)
     @GetMapping
+    @PreAuthorize("hasRole('CUSTOMER')")
     public ResponseEntity<Page<ReservationInformationNotificationResponse>> getHistory(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "0") int page,
@@ -44,6 +46,7 @@ public class NotificationController {
     }
 
     @GetMapping("/unread-count")
+    @PreAuthorize("hasRole('CUSTOMER')")
     public ResponseEntity<Map<String, Long>> getUnreadCount(
             @AuthenticationPrincipal Jwt jwt
     ) {
@@ -56,6 +59,7 @@ public class NotificationController {
     }
 
     @PatchMapping("/{notificationId}/read")
+    @PreAuthorize("hasRole('CUSTOMER')")
     public ResponseEntity<Void> markAsRead(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long notificationId
