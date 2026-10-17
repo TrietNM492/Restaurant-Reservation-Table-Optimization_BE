@@ -32,7 +32,7 @@ public interface ReservationTableRepository extends JpaRepository<ReservationTab
 
     @EntityGraph(attributePaths = {"table"})
     List<ReservationTable> findByReservationId(Long reservationId);
-  
+
     @Query("SELECT rt FROM ReservationTable rt " +
            "WHERE rt.table.id IN :tableIds " +
            "AND rt.reservation.id != :excludedReservationId " +
@@ -51,4 +51,17 @@ public interface ReservationTableRepository extends JpaRepository<ReservationTab
     @Modifying
     @Query("DELETE FROM ReservationTable rt WHERE rt.reservation.id = :reservationId")
     void deleteByReservationId(@Param("reservationId") Long reservationId);
+
+    @Query("SELECT rt FROM ReservationTable rt " +
+            "JOIN FETCH rt.reservation r " +
+            "WHERE rt.table.id IN :tableIds " +
+            "AND r.reservationStatus IN :statuses " +
+            "AND r.startTime < :windowEnd " +
+            "AND r.endTime > :windowStart")
+    List<ReservationTable> findActiveBookingsInWindow(
+            @Param("tableIds") Collection<Long> tableIds,
+            @Param("statuses") Collection<ReservationStatus> statuses,
+            @Param("windowStart") Instant windowStart,
+            @Param("windowEnd") Instant windowEnd
+    );
 }
