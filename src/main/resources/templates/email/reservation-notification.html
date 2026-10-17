@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
+    <meta name="supported-color-schemes" content="light">
+    <title>Xác nhận đặt bàn</title>
+</head>
+
+<body style="margin:0; padding:0; background-color:#F5F3FF; font-family:Arial, Helvetica, sans-serif; color:#1E1B2E;">
+
+<!-- Preheader: Short preview text shown in the email inbox -->
+<div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">
+    Đặt bàn của bạn đã được ghi nhận. Xem lại thông tin đặt bàn bên dưới.
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+       border="0" style="width:100%; background-color:#F5F3FF;">
+    <tr>
+        <td align="center" style="padding:32px 16px;">
+
+            <!-- Main email card -->
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                   border="0"
+                   style="width:100%; max-width:600px; background-color:#FFFFFF; border-radius:16px; overflow:hidden;">
+
+                <!-- Brand header -->
+                <tr>
+                    <td align="center"
+                        style="padding:28px 24px; background-color:#6D28D9;">
+
+                        <p style="margin:0; font-size:12px; line-height:18px; font-weight:bold; letter-spacing:2px; text-transform:uppercase; color:#DDD6FE;">
+                            YOUR DINING EXPERIENCE
+                        </p>
+
+                        <h1 th:text="${brandName}"
+                            style="margin:10px 0 0; color:#FFFFFF; font-size:28px; line-height:36px; font-weight:bold;">
+                            Castorant
+                        </h1>
+
+                        <p style="margin:6px 0 0; font-size:13px; line-height:20px; color:#EDE9FE;">
+                            A better way to enjoy every meal
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- Confirmation introduction -->
+                <tr>
+                    <td align="center" style="padding:32px 28px 12px;">
+
+                        <!-- Success icon -->
+                        <table role="presentation" cellpadding="0" cellspacing="0"
+                               border="0">
+                            <tr>
+                                <td align="center" valign="middle"
+                                    width="56" height="56"
+                                    style="width:56px; height:56px; border-radius:28px; background-color:#F5F3FF; color:#6D28D9; font-size:28px; font-weight:bold;">
+                                    &#10003;
+                                </td>
+                            </tr>
+                        </table>
+
+                        <h2 style="margin:20px 0 10px; color:#1E1B2E; font-size:25px; line-height:34px; font-weight:bold;">
+                            Đặt bàn thành công!
+                        </h2>
+
+                        <p style="margin:0; max-width:440px; color:#64748B; font-size:15px; line-height:24px;">
+                            Xin chào
+                            <strong th:text="${customerName}"
+                                    style="color:#1E1B2E;">
+                                Nguyen Van A
+                            </strong>,
+                            chúng tôi đã ghi nhận yêu cầu đặt bàn của bạn.
+                            Hãy kiểm tra thông tin bên dưới để chuẩn bị cho trải nghiệm ẩm thực sắp tới.
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- Reservation details -->
+                <tr>
+                    <td style="padding:24px 28px 12px;">
+
+                        <table role="presentation" width="100%" cellpadding="0"
+                               cellspacing="0" border="0"
+                               style="width:100%; border:1px solid #E9D5FF; border-radius:12px;">
+
+                            <!-- Details heading -->
+                            <tr>
+                                <td colspan="2"
+                                    style="padding:18px 20px; background-color:#FAF8FF; border-bottom:1px solid #E9D5FF;">
+                                    <p style="margin:0; color:#6D28D9; font-size:12px; line-height:18px; font-weight:bold; letter-spacing:1.2px; text-transform:uppercase;">
+                                        CHI TIẾT ĐẶT BÀN
+                                    </p>
+                                </td>
+                            </tr>
+
+                            <!-- Reservation code -->
+                            <tr>
+                                <td colspan="2" style="padding:20px 20px 14px;">
+                                    <p style="margin:0 0 6px; color:#64748B; font-size:12px; line-height:18px;">
+                                        MÃ ĐẶT BÀN
+                                    </p>
+                                    <p th:text="${reservationCode}"
+                                       style="margin:0; color:#6D28D9; font-size:22px; line-height:30px; font-weight:bold; letter-spacing:0.5px; overflow-wrap:anywhere;">
+                                        RES001
+                                    </p>
+                                    <p style="margin:6px 0 0; color:#94A3B8; font-size:12px; line-height:18px;">
+                                        Vui lòng lưu lại mã này để tiện tra cứu khi cần.
+                                    </p>
+                                </td>
+                            </tr>
+
+                            <!-- Divider -->
+                            <tr>
+                                <td colspan="2" style="padding:0 20px;">
+                                    <div style="height:1px; background-color:#F1F5F9; font-size:1px; line-height:1px;">
+                                        &nbsp;
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <!-- Reservation time -->
+                            <tr>
+                                <td width="42%" valign="top"
+                                    style="padding:16px 8px 16px 20px; color:#64748B; font-size:14px; line-height:22px;">
+                                    Thời gian
+                                </td>
+                                <td width="58%" valign="top"
+                                    style="padding:16px 20px 16px 8px; color:#1E1B2E; font-size:14px; line-height:22px; font-weight:bold; overflow-wrap:anywhere;">
+                                        <span th:text="${reservationTime}">
+                                            19:00, 20/10/2026
+                                        </span>
+                                </td>
+                            </tr>
+
+                            <!-- Divider -->
+                            <tr>
+                                <td colspan="2" style="padding:0 20px;">
+                                    <div style="height:1px; background-color:#F1F5F9; font-size:1px; line-height:1px;">
+                                        &nbsp;
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <!-- Party size -->
+                            <tr>
+                                <td width="42%" valign="top"
+                                    style="padding:16px 8px 20px 20px; color:#64748B; font-size:14px; line-height:22px;">
+                                    Số lượng khách
+                                </td>
+                                <td width="58%" valign="top"
+                                    style="padding:16px 20px 20px 8px; color:#1E1B2E; font-size:14px; line-height:22px; font-weight:bold;">
+                                    <span th:text="${partySize}">4</span> khách
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- Friendly reminder -->
+                <tr>
+                    <td style="padding:12px 28px 28px;">
+                        <table role="presentation" width="100%" cellpadding="0"
+                               cellspacing="0" border="0"
+                               style="width:100%; background-color:#F5F3FF; border-radius:10px;">
+                            <tr>
+                                <td valign="top" width="36"
+                                    style="padding:16px 0 16px 16px; color:#6D28D9; font-size:20px; line-height:24px;">
+                                    &#9733;
+                                </td>
+                                <td style="padding:16px 16px 16px 8px;">
+                                    <p style="margin:0 0 5px; color:#4C1D95; font-size:14px; line-height:21px; font-weight:bold;">
+                                        Một chút chuẩn bị cho buổi hẹn tuyệt vời
+                                    </p>
+                                    <p style="margin:0; color:#5B5672; font-size:13px; line-height:21px;">
+                                        Bạn nên đến đúng giờ đã đặt để có trải nghiệm dùng bữa thuận tiện và thoải mái nhất.
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- Thank-you section -->
+                <tr>
+                    <td align="center"
+                        style="padding:24px 28px; background-color:#FAF8FF; border-top:1px solid #F1F5F9;">
+                        <p style="margin:0 0 8px; color:#1E1B2E; font-size:16px; line-height:24px; font-weight:bold;">
+                            Cảm ơn bạn đã lựa chọn
+                            <span th:text="${brandName}" style="color:#6D28D9;">Castorant</span>!
+                        </p>
+                        <p style="margin:0; color:#64748B; font-size:13px; line-height:21px;">
+                            Chúng tôi rất mong được mang đến cho bạn một trải nghiệm ẩm thực đáng nhớ.
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                    <td align="center"
+                        style="padding:22px 24px; background-color:#FFFFFF;">
+
+                        <p style="margin:0 0 8px; color:#64748B; font-size:12px; line-height:19px;">
+                            Email này được gửi tự động từ
+                            <strong th:text="${brandName}" style="color:#6D28D9;">
+                                Castorant
+                            </strong>.
+                        </p>
+
+                        <p style="margin:0; color:#94A3B8; font-size:11px; line-height:18px;">
+                            Vui lòng không trả lời trực tiếp email này.
+                        </p>
+                    </td>
+                </tr>
+
+            </table>
+            <!-- End main email card -->
+
+            <p style="margin:18px 0 0; color:#A1A1AA; font-size:11px; line-height:18px; text-align:center;">
+                Made for memorable dining experiences.
+            </p>
+
+        </td>
+    </tr>
+</table>
+
+</body>
+</html>
+```
