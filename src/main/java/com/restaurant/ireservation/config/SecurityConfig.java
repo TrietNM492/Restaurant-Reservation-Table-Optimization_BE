@@ -59,7 +59,8 @@ public class SecurityConfig {
                 "/api/v1/payment/webhook",
                 "/api/v1/payment/vnpay-return",
                 "/api/v1/payments/vnpay-ipn",
-                "/api/v1/payments/vnpay-return"
+                "/api/v1/payments/vnpay-return",
+                "/api/v1/kitchen/**"
         };
         List<String> publishEndpoints = List.of(Constants.VERSION_API + "/home",
                 Constants.VERSION_API + "/auth/register",

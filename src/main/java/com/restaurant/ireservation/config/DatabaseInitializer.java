@@ -4,22 +4,10 @@ import com.restaurant.ireservation.domain.document.OccupancyStatistic;
 import com.restaurant.ireservation.domain.document.PreparationTimeLog;
 import com.restaurant.ireservation.domain.document.ReservationForecast;
 import com.restaurant.ireservation.domain.document.WaitingTimeLog;
-import com.restaurant.ireservation.domain.entity.Permission;
-import com.restaurant.ireservation.domain.entity.Role;
-import com.restaurant.ireservation.domain.entity.StaffInformation;
-import com.restaurant.ireservation.domain.entity.User;
-import com.restaurant.ireservation.domain.enumerations.Department;
-import com.restaurant.ireservation.domain.enumerations.Gender;
-import com.restaurant.ireservation.domain.enumerations.PermissionMethod;
+import com.restaurant.ireservation.domain.entity.*;
+import com.restaurant.ireservation.domain.enumerations.*;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
-import com.restaurant.ireservation.repository.PermissionRepository;
-import com.restaurant.ireservation.repository.OccupancyStatisticRepository;
-import com.restaurant.ireservation.repository.PreparationTimeLogRepository;
-import com.restaurant.ireservation.repository.ReservationForecastRepository;
-import com.restaurant.ireservation.repository.RoleRepository;
-import com.restaurant.ireservation.repository.StaffInformationRepository;
-import com.restaurant.ireservation.repository.UserRepository;
-import com.restaurant.ireservation.repository.WaitingTimeLogRepository;
+import com.restaurant.ireservation.repository.*;
 import com.restaurant.ireservation.security.AuthoritiesConstants;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +18,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -52,6 +41,14 @@ public class DatabaseInitializer implements CommandLineRunner {
     final ReservationForecastRepository reservationForecastRepository;
     final JdbcTemplate jdbcTemplate;
 
+    final TableAreaRepository tableAreaRepository;
+    final RestaurantTableRepository restaurantTableRepository;
+    final MenuCategoryRepository menuCategoryRepository;
+    final MenuItemRepository menuItemRepository;
+    final FoodOriginRepository foodOriginRepository;
+    final OrderRepository orderRepository;
+    final OrderItemRepository orderItemRepository;
+    final KitchenOrderRepository kitchenOrderRepository;
     @Override
     public void run(String... args) throws Exception {
         System.out.println(">>> START INIT DATABASE <<<");
@@ -135,6 +132,7 @@ public class DatabaseInitializer implements CommandLineRunner {
         }
 
         initializeMongoData();
+        initializeOrderData();
     }
 
     private void initializeMongoData() {
@@ -194,5 +192,205 @@ public class DatabaseInitializer implements CommandLineRunner {
         } catch (Exception e) {
             log.warn("DatabaseInitializer: Notice while updating 'payment_status' column: {}", e.getMessage());
         }
+    }
+
+    private void initializeOrderData() {
+        Instant now = Instant.now();
+
+        // Initialize Table Areas
+        if (tableAreaRepository.count() == 0) {
+            TableArea indoorArea = markSystemCreated(TableArea.builder()
+                    .code("INDOOR")
+                    .name(AreaName.INDOOR)
+                    .description("Indoor seating area")
+                    .build());
+            TableArea outdoorArea = markSystemCreated(TableArea.builder()
+                    .code("OUTDOOR")
+                    .name(AreaName.OUTDOOR)
+                    .description("Outdoor seating area")
+                    .build());
+            tableAreaRepository.saveAll(List.of(indoorArea, outdoorArea));
+        }
+
+        // Initialize Restaurant Tables
+        if (restaurantTableRepository.count() == 0) {
+            TableArea indoorArea = tableAreaRepository.findByCode("INDOOR").orElse(null);
+            TableArea outdoorArea = tableAreaRepository.findByCode("OUTDOOR").orElse(null);
+
+            List<RestaurantTable> tables = new ArrayList<>();
+            for (int i = 1; i <= 10; i++) {
+                RestaurantTable table = markSystemCreated(RestaurantTable.builder()
+                        .tableNumber(i)
+                        .capacity(4)
+                        .area(i <= 6 ? indoorArea : outdoorArea)
+                        .statusCode(TableStatus.AVAILABLE)
+                        .description("Table " + i)
+                        .build());
+                tables.add(table);
+            }
+            restaurantTableRepository.saveAll(tables);
+        }
+
+        // Initialize Food Origin
+        if (foodOriginRepository.count() == 0) {
+            FoodOrigin vietnam = markSystemCreated(FoodOrigin.builder()
+                    .madeIn("Vietnam")
+                    .description("Local ingredients")
+                    .isPeakSeason(true)
+                    .discountRate(10)
+                    .build());
+            foodOriginRepository.save(vietnam);
+        }
+
+        // Initialize Menu Categories
+        if (menuCategoryRepository.count() == 0) {
+            MenuCategory appetizer = markSystemCreated(MenuCategory.builder()
+                    .code("APP")
+                    .name("Appetizers")
+                    .description("Starters and appetizers")
+                    .build());
+            MenuCategory mainCourse = markSystemCreated(MenuCategory.builder()
+                    .code("MAIN")
+                    .name("Main Courses")
+                    .description("Main dishes")
+                    .build());
+            MenuCategory dessert = markSystemCreated(MenuCategory.builder()
+                    .code("DES")
+                    .name("Desserts")
+                    .description("Sweet treats")
+                    .build());
+            menuCategoryRepository.saveAll(List.of(appetizer, mainCourse, dessert));
+        }
+
+        // Initialize Menu Items
+        if (menuItemRepository.count() == 0) {
+            FoodOrigin origin = foodOriginRepository.findAll().stream().findFirst().orElse(null);
+            List<MenuCategory> categories = menuCategoryRepository.findAll();
+            MenuCategory appetizer = categories.stream().filter(c -> "APP".equals(c.getCode())).findFirst().orElse(null);
+            MenuCategory mainCourse = categories.stream().filter(c -> "MAIN".equals(c.getCode())).findFirst().orElse(null);
+            MenuCategory dessert = categories.stream().filter(c -> "DES".equals(c.getCode())).findFirst().orElse(null);
+
+            List<MenuItem> menuItems = new ArrayList<>();
+
+            // Appetizers
+            menuItems.add(markSystemCreated(MenuItem.builder()
+                    .category(appetizer)
+                    .itemName("Spring Rolls")
+                    .description("Crispy spring rolls with vegetables")
+                    .price(50000.0)
+                    .estimatedPrepTime(Duration.ofMinutes(15))
+                    .statusCode(ItemStatus.AVAILABLE)
+                    .origin(origin)
+                    .build()));
+
+            menuItems.add(markSystemCreated(MenuItem.builder()
+                    .category(appetizer)
+                    .itemName("Salad")
+                    .description("Fresh garden salad")
+                    .price(45000.0)
+                    .estimatedPrepTime(Duration.ofMinutes(10))
+                    .statusCode(ItemStatus.AVAILABLE)
+                    .origin(origin)
+                    .build()));
+
+            // Main Courses
+            menuItems.add(MenuItem.builder()
+                    .category(mainCourse)
+                    .itemName("Grilled Chicken")
+                    .description("Grilled chicken with herbs")
+                    .price(120000.0)
+                    .estimatedPrepTime(Duration.ofMinutes(25))
+                    .statusCode(ItemStatus.AVAILABLE)
+                    .origin(origin)
+
+                    .build());
+
+            menuItems.add(MenuItem.builder()
+                    .category(mainCourse)
+                    .itemName("Beef Steak")
+                    .description("Premium beef steak")
+                    .price(180000.0)
+                    .estimatedPrepTime(Duration.ofMinutes(30))
+                    .statusCode(ItemStatus.AVAILABLE)
+                    .origin(origin)
+
+                    .build());
+
+            // Desserts
+            menuItems.add(markSystemCreated(MenuItem.builder()
+                    .category(dessert)
+                    .itemName("Ice Cream")
+                    .description("Vanilla ice cream")
+                    .price(35000.0)
+                    .estimatedPrepTime(Duration.ofMinutes(5))
+                    .statusCode(ItemStatus.AVAILABLE)
+                    .origin(origin)
+                    .build()));
+
+            menuItemRepository.saveAll(menuItems);
+        }
+
+        // Initialize Orders
+        if (orderRepository.count() == 0) {
+            User adminUser = userRepository.findUserByUsername("cascas").orElse(null);
+            List<MenuItem> menuItems = menuItemRepository.findAll();
+
+            Order order = Order.builder()
+                    .orderNo("ORD-" + LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("ddMMyyyy")) + "-001")
+                    .orderStatus(OrderStatus.PENDING)
+                    .totalAmount(0.0)
+                    .build();
+            order.setCreatedBy(adminUser != null ? adminUser.getUsername() : "SYSTEM");
+            Order savedOrder = orderRepository.save(order);
+
+            // Create Order Items
+            List<OrderItem> orderItems = new ArrayList<>();
+            double totalAmount = 0.0;
+
+            for (int i = 0; i < 2 && i < menuItems.size(); i++) {
+                MenuItem menuItem = menuItems.get(i);
+                int quantity = 2;
+                double subtotal = menuItem.getPrice() * quantity;
+                totalAmount += subtotal;
+
+                OrderItem orderItem = OrderItem.builder()
+                        .order(savedOrder)
+                        .menuItem(menuItem)
+                        .quantity(quantity)
+                        .unitPrice("VND")
+                        .subtotal(subtotal)
+
+                        .build();
+                orderItems.add(orderItem);
+            }
+
+            orderItemRepository.saveAll(orderItems);
+
+            // Update order total
+            savedOrder.setTotalAmount(totalAmount);
+            orderRepository.save(savedOrder);
+
+        }
+
+        // Seed a kitchen order independently of whether the order already existed.
+        if (kitchenOrderRepository.count() == 0) {
+            orderRepository.findAll().stream().findFirst().ifPresent(order -> {
+                KitchenOrder kitchenOrder = KitchenOrder.builder()
+                        .order(order)
+                        .status(OrderKitchenStatus.PENDING)
+                        .priority(1)
+                        .estimatedPrepTimeMinutes(30)
+                        .estimatedReadyTime(now.plusSeconds(1800))
+                        .note("Customer requested less spicy")
+                        .kitchenStation("GRILL")
+                        .build();
+                kitchenOrderRepository.save(kitchenOrder);
+            });
+        }
+    }
+
+    private <T extends BaseEntity> T markSystemCreated(T entity) {
+        entity.setCreatedBy("SYSTEM");
+        return entity;
     }
 }
