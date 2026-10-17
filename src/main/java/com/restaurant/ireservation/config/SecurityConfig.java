@@ -56,6 +56,8 @@ public class SecurityConfig {
                 "/api/v1/search/**",
                 "/ws/**",
                 "/api/v1/files/**",
+                "/api/v1/payment/webhook",
+                "/api/v1/payment/vnpay-return",
                 "/api/v1/payments/vnpay-ipn",
                 "/api/v1/payments/vnpay-return"
         };
@@ -67,7 +69,9 @@ public class SecurityConfig {
                 Constants.VERSION_API + "/account/reset-password/init",
                 Constants.VERSION_API + "/account/reset-password/finish",
                 Constants.VERSION_API + "/files/**",
-                Constants.VERSION_API + "/menus/**");
+                Constants.VERSION_API + "/menus/**",
+                Constants.VERSION_API + "/payment/webhook",
+                Constants.VERSION_API + "/payment/vnpay-return");
         httpSecurity
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(AbstractHttpConfigurer::disable)

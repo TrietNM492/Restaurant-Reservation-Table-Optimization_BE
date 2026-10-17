@@ -40,7 +40,7 @@ public class ResFormatResponse implements ResponseBodyAdvice<Object> {
         HttpServletResponse servletResponse = ((ServletServerHttpResponse) response).getServletResponse();
         int status = servletResponse.getStatus();
 
-        if (body instanceof String || body instanceof Resource || body instanceof ResourceRegion) {
+        if (body instanceof String || body instanceof Resource || body instanceof ResourceRegion || body instanceof byte[]) {
             return body;
         }
 

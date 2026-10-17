@@ -26,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -49,10 +50,12 @@ public class DatabaseInitializer implements CommandLineRunner {
     final PreparationTimeLogRepository preparationTimeLogRepository;
     final OccupancyStatisticRepository occupancyStatisticRepository;
     final ReservationForecastRepository reservationForecastRepository;
+    final JdbcTemplate jdbcTemplate;
 
     @Override
     public void run(String... args) throws Exception {
         System.out.println(">>> START INIT DATABASE <<<");
+        updatePaymentStatusEnumSchema();
         Long permissionCnt = this.permissionRepository.count();
         Long userCnt = this.userRepository.count();
         Long roleCnt = this.roleRepository.count();
@@ -181,6 +184,15 @@ public class DatabaseInitializer implements CommandLineRunner {
                     .expectedOccupancy(16)
                     .generateAt(now)
                     .build());
+        }
+    }
+
+    private void updatePaymentStatusEnumSchema() {
+        try {
+            jdbcTemplate.execute("ALTER TABLE payments MODIFY COLUMN payment_status ENUM('PENDING', 'PAID', 'PARTIALLY_PAID', 'FAILED', 'CANCELLED')");
+            log.info("DatabaseInitializer: Successfully verified/updated 'payment_status' column ENUM values in MySQL 'payments' table.");
+        } catch (Exception e) {
+            log.warn("DatabaseInitializer: Notice while updating 'payment_status' column: {}", e.getMessage());
         }
     }
 }
