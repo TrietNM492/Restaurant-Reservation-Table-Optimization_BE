@@ -31,6 +31,7 @@ public class AdminStaffController {
     final StaffInformationService staffInformationService;
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ResultPaginationDTO> fetchAllPublishStaff(
             @RequestParam(name = "q", required = false) String q,
             Pageable pageable
@@ -40,6 +41,7 @@ public class AdminStaffController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<StaffInformationResponse> createStaff(@Valid @RequestBody StaffInformationRequest request) {
         var staff = staffInformationService.createStaff(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(staff);

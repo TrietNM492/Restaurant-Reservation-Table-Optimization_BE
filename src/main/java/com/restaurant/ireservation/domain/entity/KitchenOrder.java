@@ -6,6 +6,7 @@ import lombok.*;
 import lombok.experimental.FieldDefaults;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 
 @Entity
@@ -33,4 +34,21 @@ public class KitchenOrder extends BaseEntity {
 
     LocalDate servedTime;
 
+    @Builder.Default
+    Integer priority = 1; // 1: Normal, 2: High, 3: VIP / Urgent
+
+    Integer estimatedPrepTimeMinutes;
+
+    Instant estimatedReadyTime;
+
+    Instant actualStartTime;
+
+    Instant actualReadyTime;
+
+    Instant actualServedTime;
+
+    @Column(length = 500)
+    String note;
+
+    String kitchenStation;
 }

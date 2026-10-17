@@ -13,6 +13,7 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
@@ -25,6 +26,7 @@ public class CustomerService {
     final UserRepository userRepository;
     final CustomerRepository customerRepository;
 
+    @Transactional
     public CustomerInformation createCustomer(User user) {
         CustomerInformation customerInformation = CustomerInformation.builder()
                 .user(user)
@@ -35,6 +37,7 @@ public class CustomerService {
     }
 
 
+    @Transactional
     public CustomerResponse editCustomerProfile(ChangeCustomerProfileDTO profileDTO, Long userId) {
         User user = userRepository.findById(userId).orElseThrow(() -> new ResourceNotFoundException("User Not Found!"));
         user.setFullname(profileDTO.fullname());
