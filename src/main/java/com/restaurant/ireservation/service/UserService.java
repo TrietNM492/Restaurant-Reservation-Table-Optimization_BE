@@ -19,6 +19,7 @@ import com.restaurant.ireservation.security.PasswordGenerator;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +30,7 @@ import java.net.URISyntaxException;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @FieldDefaults(level = AccessLevel.PRIVATE)
 @RequiredArgsConstructor
@@ -40,6 +42,7 @@ public class UserService {
     final RoleRepository roleRepository;
     final JwtService jwtService;
     final FileService fileService;
+    final CloudinaryService cloudinaryService;
 
 
     public Optional<UserSecurityRes> getUserSecurityByUsername(String username) {
@@ -84,13 +87,42 @@ public class UserService {
     }
 
     public String changeAvatarAccount(MultipartFile file, Long userId) throws IOException, URISyntaxException {
-        String fileName = fileService.getNameAvatarUrl(file);
-        int updated = userRepository.updateUserAvatarById(userId, fileName);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User Not Found!"));
+        String oldAvatar = user.getAvatar();
+
+        String newAvatarUrl = fileService.getNameAvatarUrl(file, userId);
+
+        int updated = 0;
+        try {
+            updated = userRepository.updateUserAvatarById(userId, newAvatarUrl);
+        } catch (Exception dbEx) {
+            try {
+                cloudinaryService.deleteAsset(newAvatarUrl);
+            } catch (Exception ex) {
+                log.warn("Compensating deletion failed for newly uploaded avatar: {}", newAvatarUrl, ex);
+            }
+            throw dbEx;
+        }
+
         if (updated <= 0) {
+            try {
+                cloudinaryService.deleteAsset(newAvatarUrl);
+            } catch (Exception ex) {
+                log.warn("Compensating deletion failed for newly uploaded avatar: {}", newAvatarUrl, ex);
+            }
             throw new ResourceNotFoundException("User Not Found!");
         }
-        return fileName;
 
+        if (oldAvatar != null && !oldAvatar.isBlank()) {
+            try {
+                cloudinaryService.deleteAsset(oldAvatar);
+            } catch (Exception ex) {
+                log.warn("Failed to delete previous avatar: {}", oldAvatar, ex);
+            }
+        }
+
+        return newAvatarUrl;
     }
 
     public String toggleActionActivated(Long userId) {
