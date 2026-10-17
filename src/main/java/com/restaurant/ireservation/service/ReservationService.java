@@ -1,14 +1,21 @@
 package com.restaurant.ireservation.service;
 
 import com.restaurant.ireservation.domain.entity.Reservation;
+import com.restaurant.ireservation.domain.entity.ReservationRoom;
 import com.restaurant.ireservation.domain.entity.ReservationTable;
 import com.restaurant.ireservation.domain.entity.RestaurantTable;
+import com.restaurant.ireservation.domain.entity.Room;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.ReservationType;
+import com.restaurant.ireservation.domain.enumerations.RoomStatus;
+import com.restaurant.ireservation.domain.enumerations.RoomType;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.RoomReservationBookingRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.VipRoomRecommendationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
+import com.restaurant.ireservation.dto.response.VipRoomRecommendationResponseDTO;
 import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
@@ -17,8 +24,10 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import com.restaurant.ireservation.repository.ReservationRepository;
+import com.restaurant.ireservation.repository.ReservationRoomRepository;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
 import com.restaurant.ireservation.repository.RestaurantTableRepository;
+import com.restaurant.ireservation.repository.RoomRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -32,6 +41,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -47,6 +59,8 @@ public class ReservationService {
     final ReservationRepository reservationRepository;
     final ReservationTableRepository reservationTableRepository;
     final RestaurantTableRepository restaurantTableRepository;
+    final ReservationRoomRepository reservationRoomRepository;
+    final RoomRepository roomRepository;
     final StringRedisTemplate stringRedisTemplate;
     Clock clock = Clock.systemUTC();
 
@@ -60,25 +74,12 @@ public class ReservationService {
             throw new RequestInvalidException("End time must be after start time");
         }
 
-        if (dto.getReservationType() != ReservationType.TABLE) {
-            throw new RequestInvalidException("Only TABLE reservations are supported in Phase 1");
+        if (dto.getReservationType() != ReservationType.TABLE && dto.getReservationType() != ReservationType.VIP_ROOM) {
+            throw new RequestInvalidException("Only TABLE and VIP_ROOM reservations are supported");
         }
 
-        Set<Long> uniqueTableIds = new HashSet<>(dto.getTableIds());
-        if (uniqueTableIds.size() != dto.getTableIds().size()) {
-            throw new RequestInvalidException("Duplicate table IDs in request");
-        }
-
-        List<RestaurantTable> tables = restaurantTableRepository.findAllById(dto.getTableIds());
-        if (tables.size() != dto.getTableIds().size()) {
-            throw new ResourceNotFoundException("One or more requested tables do not exist");
-        }
-
-        for (RestaurantTable table : tables) {
-            if (table.getStatusCode() == TableStatus.LOCKED) {
-                throw new RequestInvalidException("Table " + table.getTableNumber() + " is currently locked");
-            }
-        }
+        List<RestaurantTable> tables = Collections.emptyList();
+        List<Room> rooms = Collections.emptyList();
 
         List<ReservationStatus> blockingStatuses = List.of(
                 ReservationStatus.PENDING,
@@ -86,19 +87,80 @@ public class ReservationService {
                 ReservationStatus.IN_PROGRESS
         );
 
-        List<ReservationTable> conflicts = reservationTableRepository.findConflictingReservations(
-                dto.getTableIds(),
-                blockingStatuses,
-                dto.getStartTime(),
-                dto.getEndTime()
-        );
+        if (dto.getReservationType() == ReservationType.TABLE) {
+            if (dto.getTableIds() == null || dto.getTableIds().isEmpty()) {
+                throw new RequestInvalidException("At least one table must be selected");
+            }
 
-        if (!conflicts.isEmpty()) {
-            String conflictedTableNumbers = conflicts.stream()
-                    .map(c -> String.valueOf(c.getTable().getTableNumber()))
-                    .distinct()
-                    .collect(Collectors.joining(", "));
-            throw new ReservationConflictException("Table " + conflictedTableNumbers + " is already reserved during the requested time slot");
+            Set<Long> uniqueTableIds = new HashSet<>(dto.getTableIds());
+            if (uniqueTableIds.size() != dto.getTableIds().size()) {
+                throw new RequestInvalidException("Duplicate table IDs in request");
+            }
+
+            tables = restaurantTableRepository.findAllById(dto.getTableIds());
+            if (tables.size() != dto.getTableIds().size()) {
+                throw new ResourceNotFoundException("One or more requested tables do not exist");
+            }
+
+            for (RestaurantTable table : tables) {
+                if (table.getStatusCode() == TableStatus.LOCKED) {
+                    throw new RequestInvalidException("Table " + table.getTableNumber() + " is currently locked");
+                }
+            }
+
+            List<ReservationTable> conflicts = reservationTableRepository.findConflictingReservations(
+                    dto.getTableIds(),
+                    blockingStatuses,
+                    dto.getStartTime(),
+                    dto.getEndTime()
+            );
+
+            if (!conflicts.isEmpty()) {
+                String conflictedTableNumbers = conflicts.stream()
+                        .map(c -> String.valueOf(c.getTable().getTableNumber()))
+                        .distinct()
+                        .collect(Collectors.joining(", "));
+                throw new ReservationConflictException("Table " + conflictedTableNumbers + " is already reserved during the requested time slot");
+            }
+        } else {
+            // VIP_ROOM
+            if (dto.getRoomIds() == null || dto.getRoomIds().isEmpty()) {
+                throw new RequestInvalidException("At least one VIP room must be selected");
+            }
+
+            Set<Long> uniqueRoomIds = new HashSet<>(dto.getRoomIds());
+            if (uniqueRoomIds.size() != dto.getRoomIds().size()) {
+                throw new RequestInvalidException("Duplicate room IDs in request");
+            }
+
+            rooms = roomRepository.findAllById(dto.getRoomIds());
+            if (rooms.size() != dto.getRoomIds().size()) {
+                throw new ResourceNotFoundException("One or more requested rooms do not exist");
+            }
+
+            for (Room room : rooms) {
+                if (room.getRoomType() != RoomType.VIP_ROOM) {
+                    throw new RequestInvalidException("Room " + room.getRoomName() + " is not a VIP room");
+                }
+                if (room.getRoomStatus() == RoomStatus.MAINTENANCE) {
+                    throw new RequestInvalidException("Room " + room.getRoomName() + " is currently under maintenance");
+                }
+            }
+
+            List<ReservationRoom> conflicts = reservationRoomRepository.findConflictingReservations(
+                    dto.getRoomIds(),
+                    blockingStatuses,
+                    dto.getStartTime(),
+                    dto.getEndTime()
+            );
+
+            if (!conflicts.isEmpty()) {
+                String conflictedRoomNames = conflicts.stream()
+                        .map(c -> c.getRoom().getRoomName())
+                        .distinct()
+                        .collect(Collectors.joining(", "));
+                throw new ReservationConflictException("Room " + conflictedRoomNames + " is already reserved during the requested time slot");
+            }
         }
 
         String dateStr = LocalDate.now(ZoneOffset.UTC).format(DATE_FORMATTER);
@@ -122,15 +184,147 @@ public class ReservationService {
         reservation.setCreatedBy(username);
         Reservation savedReservation = reservationRepository.save(reservation);
 
-        List<ReservationTable> resTables = tables.stream()
-                .map(t -> ReservationTable.builder()
-                        .reservation(savedReservation)
-                        .table(t)
-                        .build())
-                .toList();
-        reservationTableRepository.saveAll(resTables);
+        if (dto.getReservationType() == ReservationType.TABLE) {
+            List<ReservationTable> resTables = tables.stream()
+                    .map(t -> ReservationTable.builder()
+                            .reservation(savedReservation)
+                            .table(t)
+                            .build())
+                    .toList();
+            reservationTableRepository.saveAll(resTables);
+        } else {
+            List<ReservationRoom> resRooms = rooms.stream()
+                    .map(r -> ReservationRoom.builder()
+                            .reservation(savedReservation)
+                            .room(r)
+                            .build())
+                    .toList();
+            reservationRoomRepository.saveAll(resRooms);
+        }
 
-        return mapToResponseDTO(savedReservation, tables);
+        return mapToResponseDTO(savedReservation, tables, rooms);
+    }
+
+    @Transactional
+    public ReservationResponseDTO createRoomReservation(RoomReservationBookingRequestDTO dto, String username) {
+        CreateReservationRequestDTO createDto = CreateReservationRequestDTO.builder()
+                .partySize(dto.getPartySize())
+                .reservationType(ReservationType.VIP_ROOM)
+                .startTime(dto.getStartTime())
+                .endTime(dto.getEndTime())
+                .roomIds(dto.getRoomIds())
+                .note(dto.getNote())
+                .build();
+        return createReservation(createDto, username);
+    }
+
+    @Transactional(readOnly = true)
+    public VipRoomRecommendationResponseDTO getVipRoomRecommendations(VipRoomRecommendationRequestDTO dto) {
+        if (dto.getStartTime() == null) {
+            throw new RequestInvalidException("Start time is required");
+        }
+        if (dto.getEndTime() == null) {
+            throw new RequestInvalidException("End time is required");
+        }
+        if (!dto.getEndTime().isAfter(dto.getStartTime())) {
+            throw new RequestInvalidException("End time must be after start time");
+        }
+        if (dto.getPartySize() == null) {
+            throw new RequestInvalidException("Party size is required");
+        }
+
+        List<Room> vipRooms = roomRepository.findByRoomType(RoomType.VIP_ROOM);
+        if (vipRooms.isEmpty()) {
+            return VipRoomRecommendationResponseDTO.builder()
+                    .partySize(dto.getPartySize())
+                    .startTime(dto.getStartTime())
+                    .endTime(dto.getEndTime())
+                    .totalRooms(0)
+                    .availableRooms(0)
+                    .recommendedRoomId(null)
+                    .rooms(Collections.emptyList())
+                    .build();
+        }
+
+        List<Long> vipRoomIds = vipRooms.stream().map(Room::getId).toList();
+
+        List<ReservationStatus> blockingStatuses = List.of(
+                ReservationStatus.PENDING,
+                ReservationStatus.CONFIRMED,
+                ReservationStatus.IN_PROGRESS
+        );
+
+        List<ReservationRoom> conflicts = reservationRoomRepository.findConflictingReservations(
+                vipRoomIds,
+                blockingStatuses,
+                dto.getStartTime(),
+                dto.getEndTime()
+        );
+
+        Set<Long> conflictedRoomIds = conflicts.stream()
+                .map(c -> c.getRoom().getId())
+                .collect(Collectors.toSet());
+
+        List<VipRoomRecommendationResponseDTO.VipRoomOptionDTO> options = new ArrayList<>();
+        for (Room room : vipRooms) {
+            boolean isAvailable;
+            String unavailabilityReason = null;
+
+            if (room.getRoomStatus() == RoomStatus.MAINTENANCE) {
+                isAvailable = false;
+                unavailabilityReason = "Room is currently under maintenance";
+            } else if (conflictedRoomIds.contains(room.getId())) {
+                isAvailable = false;
+                unavailabilityReason = "Reserved for the requested time slot";
+            } else {
+                isAvailable = true;
+            }
+
+            options.add(VipRoomRecommendationResponseDTO.VipRoomOptionDTO.builder()
+                    .id(room.getId())
+                    .roomName(room.getRoomName())
+                    .roomType(room.getRoomType())
+                    .capacity(room.getCapacity())
+                    .price(room.getPrice())
+                    .roomStatus(room.getRoomStatus())
+                    .description(room.getDescription())
+                    .isAvailable(isAvailable)
+                    .isRecommended(false)
+                    .unavailabilityReason(unavailabilityReason)
+                    .build());
+        }
+
+        // Minimal deterministic ordering:
+        // 1. Available rooms first
+        // 2. Capacity ascending
+        // 3. Price ascending
+        // 4. Room ID ascending
+        options.sort(Comparator
+                .comparing(VipRoomRecommendationResponseDTO.VipRoomOptionDTO::isAvailable, Comparator.reverseOrder())
+                .thenComparingInt(VipRoomRecommendationResponseDTO.VipRoomOptionDTO::getCapacity)
+                .thenComparingDouble(VipRoomRecommendationResponseDTO.VipRoomOptionDTO::getPrice)
+                .thenComparing(VipRoomRecommendationResponseDTO.VipRoomOptionDTO::getId));
+
+        Long recommendedRoomId = null;
+        for (VipRoomRecommendationResponseDTO.VipRoomOptionDTO opt : options) {
+            if (opt.isAvailable()) {
+                opt.setRecommended(true);
+                recommendedRoomId = opt.getId();
+                break;
+            }
+        }
+
+        long availableCount = options.stream().filter(VipRoomRecommendationResponseDTO.VipRoomOptionDTO::isAvailable).count();
+
+        return VipRoomRecommendationResponseDTO.builder()
+                .partySize(dto.getPartySize())
+                .startTime(dto.getStartTime())
+                .endTime(dto.getEndTime())
+                .totalRooms(options.size())
+                .availableRooms((int) availableCount)
+                .recommendedRoomId(recommendedRoomId)
+                .rooms(options)
+                .build();
     }
 
     @Transactional
@@ -150,25 +344,12 @@ public class ReservationService {
             throw new RequestInvalidException("End time must be after start time");
         }
 
-        if (dto.getReservationType() != ReservationType.TABLE) {
-            throw new RequestInvalidException("Only TABLE reservations are supported");
+        if (dto.getReservationType() != ReservationType.TABLE && dto.getReservationType() != ReservationType.VIP_ROOM) {
+            throw new RequestInvalidException("Only TABLE and VIP_ROOM reservations are supported");
         }
 
-        Set<Long> uniqueTableIds = new HashSet<>(dto.getTableIds());
-        if (uniqueTableIds.size() != dto.getTableIds().size()) {
-            throw new RequestInvalidException("Duplicate table IDs in request");
-        }
-
-        List<RestaurantTable> tables = restaurantTableRepository.findAllById(dto.getTableIds());
-        if (tables.size() != dto.getTableIds().size()) {
-            throw new ResourceNotFoundException("One or more requested tables do not exist");
-        }
-
-        for (RestaurantTable table : tables) {
-            if (table.getStatusCode() == TableStatus.LOCKED) {
-                throw new RequestInvalidException("Table " + table.getTableNumber() + " is currently locked");
-            }
-        }
+        List<RestaurantTable> tables = Collections.emptyList();
+        List<Room> rooms = Collections.emptyList();
 
         List<ReservationStatus> blockingStatuses = List.of(
                 ReservationStatus.PENDING,
@@ -176,20 +357,104 @@ public class ReservationService {
                 ReservationStatus.IN_PROGRESS
         );
 
-        List<ReservationTable> conflicts = reservationTableRepository.findConflictingReservationsExcludingReservation(
-                dto.getTableIds(),
-                id,
-                blockingStatuses,
-                dto.getStartTime(),
-                dto.getEndTime()
-        );
+        if (dto.getReservationType() == ReservationType.TABLE) {
+            if (dto.getTableIds() == null || dto.getTableIds().isEmpty()) {
+                throw new RequestInvalidException("At least one table must be selected");
+            }
 
-        if (!conflicts.isEmpty()) {
-            String conflictedTableNumbers = conflicts.stream()
-                    .map(c -> String.valueOf(c.getTable().getTableNumber()))
-                    .distinct()
-                    .collect(Collectors.joining(", "));
-            throw new ReservationConflictException("Table " + conflictedTableNumbers + " is already reserved during the requested time slot");
+            Set<Long> uniqueTableIds = new HashSet<>(dto.getTableIds());
+            if (uniqueTableIds.size() != dto.getTableIds().size()) {
+                throw new RequestInvalidException("Duplicate table IDs in request");
+            }
+
+            tables = restaurantTableRepository.findAllById(dto.getTableIds());
+            if (tables.size() != dto.getTableIds().size()) {
+                throw new ResourceNotFoundException("One or more requested tables do not exist");
+            }
+
+            for (RestaurantTable table : tables) {
+                if (table.getStatusCode() == TableStatus.LOCKED) {
+                    throw new RequestInvalidException("Table " + table.getTableNumber() + " is currently locked");
+                }
+            }
+
+            List<ReservationTable> conflicts = reservationTableRepository.findConflictingReservationsExcludingReservation(
+                    dto.getTableIds(),
+                    id,
+                    blockingStatuses,
+                    dto.getStartTime(),
+                    dto.getEndTime()
+            );
+
+            if (!conflicts.isEmpty()) {
+                String conflictedTableNumbers = conflicts.stream()
+                        .map(c -> String.valueOf(c.getTable().getTableNumber()))
+                        .distinct()
+                        .collect(Collectors.joining(", "));
+                throw new ReservationConflictException("Table " + conflictedTableNumbers + " is already reserved during the requested time slot");
+            }
+
+            reservationTableRepository.deleteByReservationId(id);
+            reservationRoomRepository.deleteByReservationId(id);
+
+            List<ReservationTable> newResTables = tables.stream()
+                    .map(t -> ReservationTable.builder()
+                            .reservation(reservation)
+                            .table(t)
+                            .build())
+                    .toList();
+            reservationTableRepository.saveAll(newResTables);
+        } else {
+            // VIP_ROOM
+            if (dto.getRoomIds() == null || dto.getRoomIds().isEmpty()) {
+                throw new RequestInvalidException("At least one VIP room must be selected");
+            }
+
+            Set<Long> uniqueRoomIds = new HashSet<>(dto.getRoomIds());
+            if (uniqueRoomIds.size() != dto.getRoomIds().size()) {
+                throw new RequestInvalidException("Duplicate room IDs in request");
+            }
+
+            rooms = roomRepository.findAllById(dto.getRoomIds());
+            if (rooms.size() != dto.getRoomIds().size()) {
+                throw new ResourceNotFoundException("One or more requested rooms do not exist");
+            }
+
+            for (Room room : rooms) {
+                if (room.getRoomType() != RoomType.VIP_ROOM) {
+                    throw new RequestInvalidException("Room " + room.getRoomName() + " is not a VIP room");
+                }
+                if (room.getRoomStatus() == RoomStatus.MAINTENANCE) {
+                    throw new RequestInvalidException("Room " + room.getRoomName() + " is currently under maintenance");
+                }
+            }
+
+            List<ReservationRoom> conflicts = reservationRoomRepository.findConflictingReservationsExcludingReservation(
+                    dto.getRoomIds(),
+                    id,
+                    blockingStatuses,
+                    dto.getStartTime(),
+                    dto.getEndTime()
+            );
+
+            if (!conflicts.isEmpty()) {
+                String conflictedRoomNames = conflicts.stream()
+                        .map(c -> c.getRoom().getRoomName())
+                        .distinct()
+                        .collect(Collectors.joining(", "));
+                throw new ReservationConflictException("Room " + conflictedRoomNames + " is already reserved during the requested time slot");
+            }
+
+            reservationRoomRepository.deleteByReservationId(id);
+            reservationTableRepository.deleteByReservationId(id);
+
+            List<ReservationRoom> newResRooms = rooms.stream()
+                    .map(r -> ReservationRoom.builder()
+                            .reservation(reservation)
+                            .room(r)
+                            .build())
+                    .toList();
+            reservationRoomRepository.saveAll(newResRooms);
         }
 
         reservation.setPartySize(dto.getPartySize());
@@ -198,19 +463,9 @@ public class ReservationService {
         reservation.setEndTime(dto.getEndTime());
         reservation.setNote(dto.getNote());
 
-        reservationTableRepository.deleteByReservationId(id);
-
-        List<ReservationTable> newResTables = tables.stream()
-                .map(t -> ReservationTable.builder()
-                        .reservation(reservation)
-                        .table(t)
-                        .build())
-                .toList();
-        reservationTableRepository.saveAll(newResTables);
-
         Reservation updatedReservation = reservationRepository.save(reservation);
 
-        return mapToResponseDTO(updatedReservation, tables);
+        return mapToResponseDTO(updatedReservation, tables, rooms);
     }
 
     @Transactional
@@ -239,7 +494,12 @@ public class ReservationService {
                 .map(ReservationTable::getTable)
                 .toList();
 
-        return mapToResponseDTO(savedReservation, tables);
+        List<ReservationRoom> resRooms = reservationRoomRepository.findByReservationId(id);
+        List<Room> rooms = resRooms.stream()
+                .map(ReservationRoom::getRoom)
+                .toList();
+
+        return mapToResponseDTO(savedReservation, tables, rooms);
     }
 
     @Transactional
@@ -279,7 +539,12 @@ public class ReservationService {
                 .map(ReservationTable::getTable)
                 .toList();
 
-        return mapToResponseDTO(savedReservation, tables);
+        List<ReservationRoom> resRooms = reservationRoomRepository.findByReservationId(id);
+        List<Room> rooms = resRooms.stream()
+                .map(ReservationRoom::getRoom)
+                .toList();
+
+        return mapToResponseDTO(savedReservation, tables, rooms);
     }
 
     @Transactional
@@ -313,7 +578,12 @@ public class ReservationService {
                 .map(ReservationTable::getTable)
                 .toList();
 
-        return mapToResponseDTO(savedReservation, tables);
+        List<ReservationRoom> resRooms = reservationRoomRepository.findByReservationId(id);
+        List<Room> rooms = resRooms.stream()
+                .map(ReservationRoom::getRoom)
+                .toList();
+
+        return mapToResponseDTO(savedReservation, tables, rooms);
     }
 
     @Transactional(readOnly = true)
@@ -328,19 +598,35 @@ public class ReservationService {
                     List<RestaurantTable> tables = resTables.stream()
                             .map(ReservationTable::getTable)
                             .toList();
-                    return mapToResponseDTO(r, tables);
+
+                    List<ReservationRoom> resRooms = reservationRoomRepository.findByReservationId(r.getId());
+                    List<Room> rooms = resRooms.stream()
+                            .map(ReservationRoom::getRoom)
+                            .toList();
+
+                    return mapToResponseDTO(r, tables, rooms);
                 })
                 .toList();
     }
 
-    private ReservationResponseDTO mapToResponseDTO(Reservation reservation, List<RestaurantTable> tables) {
-        List<ReservationResponseDTO.TableSummaryDTO> tableSummaries = tables.stream()
+    private ReservationResponseDTO mapToResponseDTO(Reservation reservation, List<RestaurantTable> tables, List<Room> rooms) {
+        List<ReservationResponseDTO.TableSummaryDTO> tableSummaries = (tables != null) ? tables.stream()
                 .map(t -> ReservationResponseDTO.TableSummaryDTO.builder()
                         .id(t.getId())
                         .tableNumber(t.getTableNumber())
                         .capacity(t.getCapacity())
                         .build())
-                .toList();
+                .toList() : Collections.emptyList();
+
+        List<ReservationResponseDTO.RoomSummaryDTO> roomSummaries = (rooms != null) ? rooms.stream()
+                .map(r -> ReservationResponseDTO.RoomSummaryDTO.builder()
+                        .id(r.getId())
+                        .roomName(r.getRoomName())
+                        .roomType(r.getRoomType())
+                        .capacity(r.getCapacity())
+                        .price(r.getPrice())
+                        .build())
+                .toList() : Collections.emptyList();
 
         return ReservationResponseDTO.builder()
                 .id(reservation.getId())
@@ -352,6 +638,7 @@ public class ReservationService {
                 .endTime(reservation.getEndTime())
                 .note(reservation.getNote())
                 .tables(tableSummaries)
+                .rooms(roomSummaries)
                 .createdBy(reservation.getCreatedBy())
                 .createdDate(reservation.getCreatedDate())
                 .build();
