@@ -36,8 +36,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -72,12 +74,15 @@ class ReservationServiceTest {
     Instant now;
     Instant startTime;
     Instant endTime;
+    Instant pastStartTime;
 
     @BeforeEach
     void setUp() {
         now = Instant.now();
         startTime = now.plus(Duration.ofHours(2));
         endTime = now.plus(Duration.ofHours(4));
+        pastStartTime = now.minus(Duration.ofMinutes(15));
+        reservationService.setClock(Clock.systemUTC());
 
         table1 = RestaurantTable.builder()
                 .tableNumber(10)
@@ -96,6 +101,7 @@ class ReservationServiceTest {
 
     @AfterEach
     void tearDown() {
+        reservationService.setClock(Clock.systemUTC());
         SecurityContextHolder.clearContext();
     }
 
@@ -1368,18 +1374,18 @@ class ReservationServiceTest {
                 .partySize(PartySize.SMALL)
                 .reservationType(ReservationType.TABLE)
                 .reservationStatus(ReservationStatus.PENDING)
-                .startTime(startTime)
+                .startTime(pastStartTime)
                 .endTime(endTime)
                 .build();
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
 
-        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "customer1");
+        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "admin_user");
 
         assertNotNull(response);
         assertEquals(ReservationStatus.IN_PROGRESS, response.getReservationStatus());
@@ -1395,22 +1401,118 @@ class ReservationServiceTest {
                 .partySize(PartySize.MEDIUM)
                 .reservationType(ReservationType.TABLE)
                 .reservationStatus(ReservationStatus.CONFIRMED)
-                .startTime(startTime)
+                .startTime(pastStartTime)
                 .endTime(endTime)
                 .build();
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
 
-        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "customer1");
+        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "admin_user");
 
         assertNotNull(response);
         assertEquals(ReservationStatus.IN_PROGRESS, response.getReservationStatus());
         verify(reservationRepository).save(argThat(r -> r.getReservationStatus() == ReservationStatus.IN_PROGRESS));
+    }
+
+    @Test
+    @DisplayName("P4-TC-02b: Check-in fails when reservation is scheduled in the future")
+    void checkInReservation_fail_scheduledInFuture() {
+        Long reservationId = 201L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-201")
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(now.plus(Duration.ofHours(1)))
+                .endTime(now.plus(Duration.ofHours(3)))
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.checkInReservation(reservationId, "admin_user"));
+
+        assertEquals("Cannot check in before the scheduled reservation time", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("P4-TC-02c: Check-in fails when reservation startTime is null")
+    void checkInReservation_fail_nullStartTime() {
+        Long reservationId = 202L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-202")
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(null)
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.checkInReservation(reservationId, "admin_user"));
+
+        assertEquals("Cannot check in before the scheduled reservation time", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("P4-TC-02d: Check-in succeeds at exact startTime boundary using controllable Clock")
+    void checkInReservation_success_exactStartTimeBoundary() {
+        Long reservationId = 203L;
+        Instant boundaryTime = Instant.parse("2026-10-15T12:00:00Z");
+        reservationService.setClock(Clock.fixed(boundaryTime, ZoneOffset.UTC));
+
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-203")
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(boundaryTime)
+                .endTime(boundaryTime.plus(Duration.ofHours(2)))
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
+
+        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "admin_user");
+
+        assertNotNull(response);
+        assertEquals(ReservationStatus.IN_PROGRESS, response.getReservationStatus());
+    }
+
+    @Test
+    @DisplayName("P4-TC-02e: Check-in succeeds when current time is past startTime")
+    void checkInReservation_success_pastStartTime() {
+        Long reservationId = 204L;
+        Reservation existing = Reservation.builder()
+                .reservationNo("RES-05102026-204")
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(now.minus(Duration.ofMinutes(30)))
+                .endTime(now.plus(Duration.ofHours(1)))
+                .build();
+        existing.setId(reservationId);
+        existing.setCreatedBy("customer1");
+
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
+
+        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "admin_user");
+
+        assertNotNull(response);
+        assertEquals(ReservationStatus.IN_PROGRESS, response.getReservationStatus());
     }
 
     @Test
@@ -1424,11 +1526,11 @@ class ReservationServiceTest {
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
-                () -> reservationService.checkInReservation(reservationId, "customer1"));
+                () -> reservationService.checkInReservation(reservationId, "admin_user"));
 
         assertEquals("Reservation is already checked in", ex.getMessage());
         verify(reservationRepository, never()).save(any());
@@ -1445,11 +1547,11 @@ class ReservationServiceTest {
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
-                () -> reservationService.checkInReservation(reservationId, "customer1"));
+                () -> reservationService.checkInReservation(reservationId, "admin_user"));
 
         assertEquals("Only reservations with PENDING or CONFIRMED status can be checked in", ex.getMessage());
         verify(reservationRepository, never()).save(any());
@@ -1466,11 +1568,11 @@ class ReservationServiceTest {
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
-                () -> reservationService.checkInReservation(reservationId, "customer1"));
+                () -> reservationService.checkInReservation(reservationId, "admin_user"));
 
         assertEquals("Only reservations with PENDING or CONFIRMED status can be checked in", ex.getMessage());
         verify(reservationRepository, never()).save(any());
@@ -1487,11 +1589,11 @@ class ReservationServiceTest {
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
-                () -> reservationService.checkInReservation(reservationId, "customer1"));
+                () -> reservationService.checkInReservation(reservationId, "admin_user"));
 
         assertEquals("Only reservations with PENDING or CONFIRMED status can be checked in", ex.getMessage());
         verify(reservationRepository, never()).save(any());
@@ -1503,32 +1605,32 @@ class ReservationServiceTest {
         when(reservationRepository.findById(999L)).thenReturn(Optional.empty());
 
         ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class,
-                () -> reservationService.checkInReservation(999L, "customer1"));
+                () -> reservationService.checkInReservation(999L, "admin_user"));
 
         assertEquals("Reservation not found with id: 999", ex.getMessage());
         verify(reservationRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("P4-TC-08: Customer owner successfully checks in own reservation")
-    void checkInReservation_customerOwner_success() {
+    @DisplayName("P4-TC-08: Customer owner fails check-in with 403 AccessDeniedException")
+    void checkInReservation_customerOwner_forbidden() {
         Long reservationId = 8L;
         Reservation existing = Reservation.builder()
                 .reservationNo("RES-05102026-008")
                 .reservationStatus(ReservationStatus.PENDING)
+                .startTime(pastStartTime)
                 .build();
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
         mockSecurityContext(AuthoritiesConstants.CUSTOMER);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
-        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
 
-        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "customer1");
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class,
+                () -> reservationService.checkInReservation(reservationId, "customer1"));
 
-        assertNotNull(response);
-        assertEquals(ReservationStatus.IN_PROGRESS, response.getReservationStatus());
+        assertEquals("You are not allowed to check in this reservation", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
     }
 
     @Test
@@ -1553,57 +1655,13 @@ class ReservationServiceTest {
     }
 
     @Test
-    @DisplayName("P4-TC-10: Staff can check in another customer's reservation")
-    void checkInReservation_staff_canOperateOnOtherCustomer() {
-        Long reservationId = 10L;
-        Reservation existing = Reservation.builder()
-                .reservationNo("RES-05102026-010")
-                .reservationStatus(ReservationStatus.CONFIRMED)
-                .build();
-        existing.setId(reservationId);
-        existing.setCreatedBy("customer1");
-
-        mockSecurityContext(AuthoritiesConstants.STAFF);
-        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
-        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
-
-        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "staff_user");
-
-        assertNotNull(response);
-        assertEquals(ReservationStatus.IN_PROGRESS, response.getReservationStatus());
-        verify(reservationRepository).save(argThat(r -> r.getReservationStatus() == ReservationStatus.IN_PROGRESS));
-    }
-
-    @Test
-    @DisplayName("P4-TC-11: Manager can check in another customer's reservation")
-    void checkInReservation_manager_canOperateOnOtherCustomer() {
-        Long reservationId = 11L;
-        Reservation existing = Reservation.builder()
-                .reservationNo("RES-05102026-011")
-                .reservationStatus(ReservationStatus.PENDING)
-                .build();
-        existing.setId(reservationId);
-        existing.setCreatedBy("customer1");
-
-        mockSecurityContext(AuthoritiesConstants.MANAGER);
-        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
-        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
-
-        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "manager_user");
-
-        assertNotNull(response);
-        assertEquals(ReservationStatus.IN_PROGRESS, response.getReservationStatus());
-    }
-
-    @Test
     @DisplayName("P4-TC-12: Admin can check in another customer's reservation")
     void checkInReservation_admin_canOperateOnOtherCustomer() {
         Long reservationId = 12L;
         Reservation existing = Reservation.builder()
                 .reservationNo("RES-05102026-012")
                 .reservationStatus(ReservationStatus.CONFIRMED)
+                .startTime(pastStartTime)
                 .build();
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
@@ -1628,7 +1686,7 @@ class ReservationServiceTest {
                 .partySize(PartySize.LARGE)
                 .reservationType(ReservationType.TABLE)
                 .reservationStatus(ReservationStatus.CONFIRMED)
-                .startTime(startTime)
+                .startTime(pastStartTime)
                 .endTime(endTime)
                 .build();
         existing.setId(reservationId);
@@ -1637,12 +1695,12 @@ class ReservationServiceTest {
         ReservationTable resTable1 = ReservationTable.builder().reservation(existing).table(table1).build();
         ReservationTable resTable2 = ReservationTable.builder().reservation(existing).table(table2).build();
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(List.of(resTable1, resTable2));
 
-        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "customer1");
+        ReservationResponseDTO response = reservationService.checkInReservation(reservationId, "admin_user");
 
         assertNotNull(response);
         assertEquals(2, response.getTables().size());
@@ -1671,12 +1729,12 @@ class ReservationServiceTest {
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
 
-        ReservationResponseDTO response = reservationService.completeReservation(reservationId, "customer1");
+        ReservationResponseDTO response = reservationService.completeReservation(reservationId, "admin_user");
 
         assertNotNull(response);
         assertEquals(ReservationStatus.COMPLETED, response.getReservationStatus());
@@ -1694,11 +1752,11 @@ class ReservationServiceTest {
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
-                () -> reservationService.completeReservation(reservationId, "customer1"));
+                () -> reservationService.completeReservation(reservationId, "admin_user"));
 
         assertEquals("Only reservations with IN_PROGRESS status can be completed", ex.getMessage());
         verify(reservationRepository, never()).save(any());
@@ -1715,11 +1773,11 @@ class ReservationServiceTest {
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
-                () -> reservationService.completeReservation(reservationId, "customer1"));
+                () -> reservationService.completeReservation(reservationId, "admin_user"));
 
         assertEquals("Only reservations with IN_PROGRESS status can be completed", ex.getMessage());
         verify(reservationRepository, never()).save(any());
@@ -1736,11 +1794,11 @@ class ReservationServiceTest {
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
-                () -> reservationService.completeReservation(reservationId, "customer1"));
+                () -> reservationService.completeReservation(reservationId, "admin_user"));
 
         assertEquals("Reservation is already completed", ex.getMessage());
         verify(reservationRepository, never()).save(any());
@@ -1757,11 +1815,11 @@ class ReservationServiceTest {
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
-                () -> reservationService.completeReservation(reservationId, "customer1"));
+                () -> reservationService.completeReservation(reservationId, "admin_user"));
 
         assertEquals("Only reservations with IN_PROGRESS status can be completed", ex.getMessage());
         verify(reservationRepository, never()).save(any());
@@ -1778,11 +1836,11 @@ class ReservationServiceTest {
         existing.setId(reservationId);
         existing.setCreatedBy("customer1");
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
 
         RequestInvalidException ex = assertThrows(RequestInvalidException.class,
-                () -> reservationService.completeReservation(reservationId, "customer1"));
+                () -> reservationService.completeReservation(reservationId, "admin_user"));
 
         assertEquals("Only reservations with IN_PROGRESS status can be completed", ex.getMessage());
         verify(reservationRepository, never()).save(any());
@@ -1794,15 +1852,15 @@ class ReservationServiceTest {
         when(reservationRepository.findById(999L)).thenReturn(Optional.empty());
 
         ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class,
-                () -> reservationService.completeReservation(999L, "customer1"));
+                () -> reservationService.completeReservation(999L, "admin_user"));
 
         assertEquals("Reservation not found with id: 999", ex.getMessage());
         verify(reservationRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("P4-TC-21: Customer owner successfully completes own reservation")
-    void completeReservation_customerOwner_success() {
+    @DisplayName("P4-TC-21: Customer owner fails completion with 403 AccessDeniedException")
+    void completeReservation_customerOwner_forbidden() {
         Long reservationId = 21L;
         Reservation existing = Reservation.builder()
                 .reservationNo("RES-05102026-021")
@@ -1813,13 +1871,12 @@ class ReservationServiceTest {
 
         mockSecurityContext(AuthoritiesConstants.CUSTOMER);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
-        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
 
-        ReservationResponseDTO response = reservationService.completeReservation(reservationId, "customer1");
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class,
+                () -> reservationService.completeReservation(reservationId, "customer1"));
 
-        assertNotNull(response);
-        assertEquals(ReservationStatus.COMPLETED, response.getReservationStatus());
+        assertEquals("You are not allowed to complete this reservation", ex.getMessage());
+        verify(reservationRepository, never()).save(any());
     }
 
     @Test
@@ -1841,51 +1898,6 @@ class ReservationServiceTest {
 
         assertEquals("You are not allowed to complete this reservation", ex.getMessage());
         verify(reservationRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("P4-TC-23: Staff can complete another customer's reservation")
-    void completeReservation_staff_canOperateOnOtherCustomer() {
-        Long reservationId = 23L;
-        Reservation existing = Reservation.builder()
-                .reservationNo("RES-05102026-023")
-                .reservationStatus(ReservationStatus.IN_PROGRESS)
-                .build();
-        existing.setId(reservationId);
-        existing.setCreatedBy("customer1");
-
-        mockSecurityContext(AuthoritiesConstants.STAFF);
-        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
-        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
-
-        ReservationResponseDTO response = reservationService.completeReservation(reservationId, "staff_user");
-
-        assertNotNull(response);
-        assertEquals(ReservationStatus.COMPLETED, response.getReservationStatus());
-        verify(reservationRepository).save(argThat(r -> r.getReservationStatus() == ReservationStatus.COMPLETED));
-    }
-
-    @Test
-    @DisplayName("P4-TC-24: Manager can complete another customer's reservation")
-    void completeReservation_manager_canOperateOnOtherCustomer() {
-        Long reservationId = 24L;
-        Reservation existing = Reservation.builder()
-                .reservationNo("RES-05102026-024")
-                .reservationStatus(ReservationStatus.IN_PROGRESS)
-                .build();
-        existing.setId(reservationId);
-        existing.setCreatedBy("customer1");
-
-        mockSecurityContext(AuthoritiesConstants.MANAGER);
-        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
-        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
-
-        ReservationResponseDTO response = reservationService.completeReservation(reservationId, "manager_user");
-
-        assertNotNull(response);
-        assertEquals(ReservationStatus.COMPLETED, response.getReservationStatus());
     }
 
     @Test
@@ -1928,12 +1940,12 @@ class ReservationServiceTest {
         ReservationTable resTable1 = ReservationTable.builder().reservation(existing).table(table1).build();
         ReservationTable resTable2 = ReservationTable.builder().reservation(existing).table(table2).build();
 
-        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
         when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(existing));
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(List.of(resTable1, resTable2));
 
-        ReservationResponseDTO response = reservationService.completeReservation(reservationId, "customer1");
+        ReservationResponseDTO response = reservationService.completeReservation(reservationId, "admin_user");
 
         assertNotNull(response);
         assertEquals(2, response.getTables().size());
