@@ -69,6 +69,7 @@ public class PaymentService {
     OrderRepository orderRepository;
     OrderItemRepository orderItemRepository;
     VnPayConfig vnPayConfig;
+    MailService mailService;
 
     @Transactional
     public PaymentResponseDTO createPayment(CreatePaymentRequestDTO request, String username,
@@ -378,9 +379,13 @@ public class PaymentService {
                         log.info("VNPay IPN: Payment {} marked as PARTIALLY_PAID. Order {} paid {} of {}. Order remains AWAITING_PAYMENT.",
                                 payment.getId(), lockedOrder.getId(), newTotalPaid, orderTargetTotal);
                     }
+
+                    // Trigger invoice email asynchronously with PDF attachment and download button
+                    sendInvoiceEmailForPayment(payment.getId(), null);
                 } else {
                     payment.setPaymentStatus(PaymentStatus.PAID);
                     paymentRepository.save(payment);
+                    sendInvoiceEmailForPayment(payment.getId(), null);
                 }
             } else if ("24".equals(responseCode)) {
                 // Customer cancelled on VNPay
@@ -534,6 +539,33 @@ public class PaymentService {
             }
         }
 
+        return buildInvoiceResponse(payment, order);
+    }
+
+    @Transactional(readOnly = true)
+    public InvoiceResponseDTO getInvoiceDataPublic(Long paymentId) {
+        if (paymentId == null) {
+            throw new RequestInvalidException("Payment ID must not be null");
+        }
+
+        Payment payment = paymentRepository.findWithOrderById(paymentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment not found with id: " + paymentId));
+
+        PaymentStatus status = payment.getPaymentStatus();
+        if (status != PaymentStatus.PAID && status != PaymentStatus.PARTIALLY_PAID) {
+            throw new RequestInvalidException(
+                    "Cannot generate invoice for payment with status " + status + ". Only PAID or PARTIALLY_PAID payments can have invoices.");
+        }
+
+        Order order = payment.getOrder();
+        if (order == null) {
+            throw new ResourceNotFoundException("Associated order not found for payment id: " + paymentId);
+        }
+
+        return buildInvoiceResponse(payment, order);
+    }
+
+    private InvoiceResponseDTO buildInvoiceResponse(Payment payment, Order order) {
         String customerName = "Walk-in Guest";
         String customerPhone = "";
         String customerEmail = "";
@@ -617,6 +649,43 @@ public class PaymentService {
     public byte[] generateInvoicePdf(Long paymentId, String username, Collection<? extends GrantedAuthority> authorities) {
         InvoiceResponseDTO invoice = getInvoiceData(paymentId, username, authorities);
         return InvoicePdfGenerator.generatePdf(invoice);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] generateInvoicePdfPublic(Long paymentId) {
+        InvoiceResponseDTO invoice = getInvoiceDataPublic(paymentId);
+        return InvoicePdfGenerator.generatePdf(invoice);
+    }
+
+    public void sendInvoiceEmailForPayment(Long paymentId, String customRecipientEmail) {
+        try {
+            InvoiceResponseDTO invoice = getInvoiceDataPublic(paymentId);
+            String backendBaseUrl = resolveBackendBaseUrl();
+            String downloadUrl = backendBaseUrl + "/api/v1/payment/" + paymentId + "/invoice/download";
+            mailService.sendInvoiceEmail(invoice, downloadUrl, customRecipientEmail);
+            log.info("Triggered invoice email for paymentId: {}, recipient: {}", paymentId,
+                    customRecipientEmail != null ? customRecipientEmail : invoice.getCustomerEmail());
+        } catch (Exception e) {
+            log.error("Failed to trigger invoice email for paymentId {}: {}", paymentId, e.getMessage(), e);
+        }
+    }
+
+    public void sendInvoiceEmailManually(Long paymentId, String username, Collection<? extends GrantedAuthority> authorities, String customRecipientEmail) {
+        InvoiceResponseDTO invoice = getInvoiceData(paymentId, username, authorities);
+        String backendBaseUrl = resolveBackendBaseUrl();
+        String downloadUrl = backendBaseUrl + "/api/v1/payment/" + paymentId + "/invoice/download";
+        mailService.sendInvoiceEmail(invoice, downloadUrl, customRecipientEmail);
+    }
+
+    private String resolveBackendBaseUrl() {
+        String returnUrl = vnPayConfig.getReturnUrl();
+        if (returnUrl != null && !returnUrl.isBlank()) {
+            int idx = returnUrl.indexOf("/api/v1/payment");
+            if (idx > 0) {
+                return returnUrl.substring(0, idx);
+            }
+        }
+        return "http://localhost:8080";
     }
 
     private int resolveDiscountRate(Order order) {
