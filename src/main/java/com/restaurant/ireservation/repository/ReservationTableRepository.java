@@ -64,4 +64,16 @@ public interface ReservationTableRepository extends JpaRepository<ReservationTab
             @Param("windowStart") Instant windowStart,
             @Param("windowEnd") Instant windowEnd
     );
+
+    @Query("SELECT rt FROM ReservationTable rt " +
+            "JOIN FETCH rt.table t " +
+            "JOIN FETCH rt.reservation r " +
+            "LEFT JOIN FETCH t.area a " +
+            "WHERE r.startTime >= :startTime AND r.startTime <= :endTime " +
+            "AND r.reservationStatus NOT IN :excludedStatuses")
+    List<ReservationTable> findReservationsInDateRange(
+            @Param("startTime") Instant startTime,
+            @Param("endTime") Instant endTime,
+            @Param("excludedStatuses") Collection<ReservationStatus> excludedStatuses
+    );
 }
