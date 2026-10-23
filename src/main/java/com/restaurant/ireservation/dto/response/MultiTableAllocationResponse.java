@@ -21,5 +21,7 @@ public class MultiTableAllocationResponse {
     private Instant endTime;
     private Long areaId;
     private int totalCapacity;
+    /** Current combination quality, 0-100, rounded to one decimal place. */
+    private double score;
     private List<ReservationResponseDTO.TableSummaryDTO> tables;
 }

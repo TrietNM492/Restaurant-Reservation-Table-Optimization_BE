@@ -9,6 +9,10 @@ import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.*;
+import com.restaurant.ireservation.service.recommendation.TableRecommendationEngine;
+import com.restaurant.ireservation.service.recommendation.TableRecommendationEngine.Booking;
+import com.restaurant.ireservation.service.recommendation.TableRecommendationEngine.Query;
+import com.restaurant.ireservation.service.recommendation.TableRecommendationEngine.TableCandidate;
 import com.restaurant.ireservation.util.ResultPaginationDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -26,6 +30,7 @@ public class MultiTableAllocationService {
             ReservationStatus.PENDING, ReservationStatus.CONFIRMED, ReservationStatus.IN_PROGRESS);
     private static final Duration TURNAROUND_BUFFER = Duration.ofMinutes(15);
     private static final Duration OCCUPANCY_LOOKAHEAD = Duration.ofMinutes(30);
+    private static final Duration SCORING_LOOKAROUND = Duration.ofHours(6);
 
     private final ReservationRepository reservationRepository;
     private final RestaurantTableRepository restaurantTableRepository;
@@ -121,6 +126,29 @@ public class MultiTableAllocationService {
                 .reservationNo(reservation.getReservationNo()).partySize(reservation.getPartySize())
                 .reservationStatus(reservation.getReservationStatus()).startTime(reservation.getStartTime())
                 .endTime(reservation.getEndTime()).areaId(areas.size() == 1 ? areas.iterator().next() : null)
-                .totalCapacity(tables.stream().mapToInt(RestaurantTable::getCapacity).sum()).tables(summaries).build();
+                .totalCapacity(tables.stream().mapToInt(RestaurantTable::getCapacity).sum())
+                .score(calculateCombinationScore(reservation, tables)).tables(summaries).build();
+    }
+
+    private double calculateCombinationScore(Reservation reservation, List<RestaurantTable> tables) {
+        int guests = AllocationOptimizationService.requiredSeats(reservation.getPartySize());
+        if (tables.isEmpty() || guests <= 0 || reservation.getStartTime() == null || reservation.getEndTime() == null
+                || !reservation.getEndTime().isAfter(reservation.getStartTime())) {
+            return 0.0;
+        }
+        List<Long> ids = tables.stream().map(RestaurantTable::getId).toList();
+        List<Booking> neighbours = reservationTableRepository.findActiveBookingsInWindow(ids, BLOCKING_STATUSES,
+                        reservation.getStartTime().minus(SCORING_LOOKAROUND),
+                        reservation.getEndTime().plus(SCORING_LOOKAROUND)).stream()
+                .filter(rt -> !Objects.equals(rt.getReservation().getId(), reservation.getId()))
+                .map(rt -> new Booking(rt.getTable().getId(), rt.getReservation().getStartTime(),
+                        rt.getReservation().getEndTime())).toList();
+        List<TableCandidate> candidates = tables.stream().map(t -> new TableCandidate(t.getId(),
+                t.getTableNumber() == null ? 0 : t.getTableNumber(), t.getCapacity(),
+                t.getArea() == null ? null : t.getArea().getId())).toList();
+        // Reservation currently stores neither exact guest count nor a preferred area.
+        Query query = new Query(guests, reservation.getStartTime(), reservation.getEndTime(), null,
+                1, true, (int) TURNAROUND_BUFFER.toMinutes(), tables.size());
+        return TableRecommendationEngine.scoreAllocatedCombination(query, candidates, neighbours);
     }
 }

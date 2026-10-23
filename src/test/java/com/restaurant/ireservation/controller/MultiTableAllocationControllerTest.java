@@ -35,14 +35,18 @@ class MultiTableAllocationControllerTest {
     @ParameterizedTest
     @ValueSource(strings = {"ROLE_STAFF", "ROLE_MANAGER", "ROLE_ADMIN"})
     void authorizedRolesCanAllocateAndList(String role) throws Exception {
-        when(service.allocate(any())).thenReturn(MultiTableAllocationResponse.builder().reservationId(10L).totalCapacity(8).build());
-        when(service.getCombinations(eq(10L), any())).thenReturn(new ResultPaginationDTO());
+        var response = MultiTableAllocationResponse.builder().reservationId(10L).totalCapacity(8).score(82.6).build();
+        when(service.allocate(any())).thenReturn(response);
+        var page = new ResultPaginationDTO();
+        page.setResult(java.util.List.of(response));
+        when(service.getCombinations(eq(10L), any())).thenReturn(page);
         var user = jwt().authorities(new SimpleGrantedAuthority(role));
         mvc.perform(post(URL).with(user).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reservationId\":10,\"tableIds\":[1,2]}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalCapacity").value(8));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalCapacity").value(8))
+                .andExpect(jsonPath("$.data.score").value(82.6));
         mvc.perform(get(URL).with(user).param("reservationId", "10"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.result[0].score").value(82.6));
     }
 
     @Test

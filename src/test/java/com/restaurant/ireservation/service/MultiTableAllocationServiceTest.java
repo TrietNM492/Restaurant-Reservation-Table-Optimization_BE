@@ -3,6 +3,7 @@ package com.restaurant.ireservation.service;
 import com.restaurant.ireservation.domain.entity.*;
 import com.restaurant.ireservation.domain.enumerations.*;
 import com.restaurant.ireservation.dto.request.MultiTableAllocationRequest;
+import com.restaurant.ireservation.dto.response.MultiTableAllocationResponse;
 import com.restaurant.ireservation.error.*;
 import com.restaurant.ireservation.repository.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,6 +62,7 @@ class MultiTableAllocationServiceTest {
         stubTables();
         var response = service.allocate(request);
         assertEquals(8, response.getTotalCapacity());
+        assertEquals(82.6, response.getScore());
         assertEquals(1L, response.getAreaId());
         assertEquals(List.of(1L, 2L), response.getTables().stream().map(t -> t.getId()).toList());
         verify(reservationTableRepository).findConflictingReservationsExcludingReservation(
@@ -177,5 +179,35 @@ class MultiTableAllocationServiceTest {
         assertEquals(1, result.getMeta().getTotal());
         assertEquals(1, result.getMeta().getPage());
         assertEquals(1, ((List<?>) result.getResult()).size());
+        assertEquals(82.6, ((MultiTableAllocationResponse) ((List<?>) result.getResult()).getFirst()).getScore());
+    }
+
+    @Test
+    void allocateAndGetReturnSameScoreAndIgnoreOwnBooking() {
+        stubTables();
+        List<ReservationTable> ownLinks = List.of(
+                ReservationTable.builder().reservation(reservation).table(first).build(),
+                ReservationTable.builder().reservation(reservation).table(second).build());
+        Reservation neighbour = Reservation.builder()
+                .startTime(reservation.getStartTime().minusSeconds(7200))
+                .endTime(reservation.getStartTime().minusSeconds(900)).build();
+        neighbour.setId(20L);
+        List<ReservationTable> neighbours = new ArrayList<>(ownLinks);
+        neighbours.add(ReservationTable.builder().reservation(neighbour).table(first).build());
+        neighbours.add(ReservationTable.builder().reservation(neighbour).table(second).build());
+        when(reservationTableRepository.findActiveBookingsInWindow(anyCollection(), anyCollection(), any(), any()))
+                .thenReturn(neighbours);
+        var allocated = service.allocate(request);
+        var pageable = PageRequest.of(0, 10);
+        when(reservationRepository.findTableCombinations(10L, pageable))
+                .thenReturn(new PageImpl<>(List.of(reservation), pageable, 1));
+        when(reservationTableRepository.findByReservationId(10L)).thenReturn(ownLinks);
+        var page = service.getCombinations(10L, pageable);
+        var fetched = (MultiTableAllocationResponse) ((List<?>) page.getResult()).getFirst();
+        assertEquals(87.1, allocated.getScore());
+        assertEquals(allocated.getScore(), fetched.getScore());
+        verify(reservationTableRepository, times(2)).findActiveBookingsInWindow(eq(List.of(1L, 2L)),
+                anyCollection(), eq(reservation.getStartTime().minusSeconds(21600)),
+                eq(reservation.getEndTime().plusSeconds(21600)));
     }
 }
