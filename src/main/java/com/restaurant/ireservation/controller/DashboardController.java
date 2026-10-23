@@ -1,6 +1,8 @@
 package com.restaurant.ireservation.controller;
 
+import com.restaurant.ireservation.dto.response.KitchenPerformanceAnalyticsDTO;
 import com.restaurant.ireservation.dto.response.VipRoomAnalyticsDTO;
+import com.restaurant.ireservation.service.KitchenPerformanceAnalyticsService;
 import com.restaurant.ireservation.service.VipRoomAnalyticsService;
 import com.restaurant.ireservation.util.annotation.ApiMessage;
 import lombok.AccessLevel;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class DashboardController {
 
     VipRoomAnalyticsService vipRoomAnalyticsService;
+    KitchenPerformanceAnalyticsService kitchenPerformanceAnalyticsService;
 
     // ─── VIP Room Analytics ───────────────────────────────────────────────────
 
@@ -37,4 +40,20 @@ public class DashboardController {
     public ResponseEntity<VipRoomAnalyticsDTO> getVipRoomAnalytics() {
         return ResponseEntity.ok(vipRoomAnalyticsService.getVipRoomAnalytics());
     }
+
+    // ─── Kitchen Performance Analytics ────────────────────────────────────────
+
+    /**
+     * GET /api/v1/dashboard/kitchen
+     * Trả về analytics hiệu suất bếp:
+     * - Average Preparation Time
+     * - Kitchen Workload
+     * - Most Ordered Dishes
+     */
+    @GetMapping("/kitchen")
+    @ApiMessage("Fetch kitchen performance analytics successfully")
+    public ResponseEntity<KitchenPerformanceAnalyticsDTO> getKitchenPerformanceAnalytics() {
+        return ResponseEntity.ok(kitchenPerformanceAnalyticsService.getKitchenPerformanceAnalytics());
+    }
 }
+
