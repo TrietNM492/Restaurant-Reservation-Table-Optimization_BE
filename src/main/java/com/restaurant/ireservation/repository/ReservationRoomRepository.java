@@ -53,4 +53,27 @@ public interface ReservationRoomRepository extends JpaRepository<ReservationRoom
     @Modifying
     @Query("DELETE FROM ReservationRoom rr WHERE rr.reservation.id = :reservationId")
     void deleteByReservationId(@Param("reservationId") Long reservationId);
+
+    // ─── VIP Room Analytics ───────────────────────────────────────────────────
+
+    /**
+     * Đếm số lượt đặt phòng theo từng room_id (Booking Frequency).
+     * Trả về Object[]{roomId (Long), bookingCount (Long)}
+     */
+    @Query("SELECT rr.room.id, COUNT(rr) FROM ReservationRoom rr GROUP BY rr.room.id")
+    List<Object[]> countBookingsGroupByRoom();
+
+    /**
+     * Tính tổng doanh thu (PAID payments) theo từng room_id (Revenue By VIP Room).
+     * Join qua reservation -> orders -> payments.
+     * Trả về Object[]{roomId (Long), totalRevenue (Double)}
+     */
+    @Query("SELECT rr.room.id, COALESCE(SUM(p.totalFinalPrice), 0.0) " +
+           "FROM ReservationRoom rr " +
+           "JOIN rr.reservation res " +
+           "JOIN Order o ON o.reservation.id = res.id " +
+           "JOIN Payment p ON p.order.id = o.id " +
+           "WHERE p.paymentStatus IN :paidStatuses " +
+           "GROUP BY rr.room.id")
+    List<Object[]> sumRevenueGroupByRoom(@Param("paidStatuses") Collection<com.restaurant.ireservation.domain.enumerations.PaymentStatus> paidStatuses);
 }
