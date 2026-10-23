@@ -646,35 +646,55 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public byte[] generateInvoicePdf(Long paymentId, String username, Collection<? extends GrantedAuthority> authorities) {
+    public byte[] generateInvoicePdf(Long paymentId, String username, Collection<? extends GrantedAuthority> authorities, String language) {
         InvoiceResponseDTO invoice = getInvoiceData(paymentId, username, authorities);
-        return InvoicePdfGenerator.generatePdf(invoice);
+        return InvoicePdfGenerator.generatePdf(invoice, language);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] generateInvoicePdf(Long paymentId, String username, Collection<? extends GrantedAuthority> authorities) {
+        return generateInvoicePdf(paymentId, username, authorities, "en");
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] generateInvoicePdfPublic(Long paymentId, String language) {
+        InvoiceResponseDTO invoice = getInvoiceDataPublic(paymentId);
+        return InvoicePdfGenerator.generatePdf(invoice, language);
     }
 
     @Transactional(readOnly = true)
     public byte[] generateInvoicePdfPublic(Long paymentId) {
-        InvoiceResponseDTO invoice = getInvoiceDataPublic(paymentId);
-        return InvoicePdfGenerator.generatePdf(invoice);
+        return generateInvoicePdfPublic(paymentId, "en");
     }
 
-    public void sendInvoiceEmailForPayment(Long paymentId, String customRecipientEmail) {
+    public void sendInvoiceEmailForPayment(Long paymentId, String customRecipientEmail, String language) {
         try {
             InvoiceResponseDTO invoice = getInvoiceDataPublic(paymentId);
             String backendBaseUrl = resolveBackendBaseUrl();
-            String downloadUrl = backendBaseUrl + "/api/v1/payment/" + paymentId + "/invoice/download";
-            mailService.sendInvoiceEmail(invoice, downloadUrl, customRecipientEmail);
-            log.info("Triggered invoice email for paymentId: {}, recipient: {}", paymentId,
-                    customRecipientEmail != null ? customRecipientEmail : invoice.getCustomerEmail());
+            String langParam = (language != null && !language.isBlank()) ? ("?lang=" + language) : "";
+            String downloadUrl = backendBaseUrl + "/api/v1/payment/" + paymentId + "/invoice/download" + langParam;
+            mailService.sendInvoiceEmail(invoice, downloadUrl, customRecipientEmail, language);
+            log.info("Triggered invoice email for paymentId: {}, recipient: {}, lang: {}", paymentId,
+                    customRecipientEmail != null ? customRecipientEmail : invoice.getCustomerEmail(), language);
         } catch (Exception e) {
             log.error("Failed to trigger invoice email for paymentId {}: {}", paymentId, e.getMessage(), e);
         }
     }
 
-    public void sendInvoiceEmailManually(Long paymentId, String username, Collection<? extends GrantedAuthority> authorities, String customRecipientEmail) {
+    public void sendInvoiceEmailForPayment(Long paymentId, String customRecipientEmail) {
+        sendInvoiceEmailForPayment(paymentId, customRecipientEmail, "en");
+    }
+
+    public void sendInvoiceEmailManually(Long paymentId, String username, Collection<? extends GrantedAuthority> authorities, String customRecipientEmail, String language) {
         InvoiceResponseDTO invoice = getInvoiceData(paymentId, username, authorities);
         String backendBaseUrl = resolveBackendBaseUrl();
-        String downloadUrl = backendBaseUrl + "/api/v1/payment/" + paymentId + "/invoice/download";
-        mailService.sendInvoiceEmail(invoice, downloadUrl, customRecipientEmail);
+        String langParam = (language != null && !language.isBlank()) ? ("?lang=" + language) : "";
+        String downloadUrl = backendBaseUrl + "/api/v1/payment/" + paymentId + "/invoice/download" + langParam;
+        mailService.sendInvoiceEmail(invoice, downloadUrl, customRecipientEmail, language);
+    }
+
+    public void sendInvoiceEmailManually(Long paymentId, String username, Collection<? extends GrantedAuthority> authorities, String customRecipientEmail) {
+        sendInvoiceEmailManually(paymentId, username, authorities, customRecipientEmail, "en");
     }
 
     private String resolveBackendBaseUrl() {

@@ -106,7 +106,9 @@ public class PaymentController {
     @ApiMessage("Get invoice successfully")
     public ResponseEntity<?> getInvoice(
             @PathVariable("paymentId") Long paymentId,
-            @RequestParam(name = "download", defaultValue = "false") boolean download
+            @RequestParam(name = "download", defaultValue = "false") boolean download,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(name = "Accept-Language", required = false) String acceptLanguage
     ) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated() || "anonymousUser".equalsIgnoreCase(auth.getName())) {
@@ -114,9 +116,10 @@ public class PaymentController {
         }
         String username = auth.getName();
         Collection<? extends GrantedAuthority> authorities = auth.getAuthorities();
+        String effectiveLang = resolveLanguage(lang, acceptLanguage);
 
         if (download) {
-            byte[] pdfBytes = paymentService.generateInvoicePdf(paymentId, username, authorities);
+            byte[] pdfBytes = paymentService.generateInvoicePdf(paymentId, username, authorities, effectiveLang);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_PDF);
             headers.setContentDisposition(ContentDisposition.attachment()
@@ -132,8 +135,13 @@ public class PaymentController {
 
     @GetMapping("/{paymentId}/invoice/download")
     @ApiMessage("Download invoice PDF successfully")
-    public ResponseEntity<byte[]> downloadInvoicePdf(@PathVariable("paymentId") Long paymentId) {
-        byte[] pdfBytes = paymentService.generateInvoicePdfPublic(paymentId);
+    public ResponseEntity<byte[]> downloadInvoicePdf(
+            @PathVariable("paymentId") Long paymentId,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(name = "Accept-Language", required = false) String acceptLanguage
+    ) {
+        String effectiveLang = resolveLanguage(lang, acceptLanguage);
+        byte[] pdfBytes = paymentService.generateInvoicePdfPublic(paymentId, effectiveLang);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PDF);
         headers.setContentDisposition(ContentDisposition.attachment()
@@ -148,7 +156,9 @@ public class PaymentController {
     @ApiMessage("Send invoice email successfully")
     public ResponseEntity<Void> sendInvoiceEmail(
             @PathVariable("paymentId") Long paymentId,
-            @RequestParam(name = "toEmail", required = false) String toEmail
+            @RequestParam(name = "toEmail", required = false) String toEmail,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(name = "Accept-Language", required = false) String acceptLanguage
     ) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String username = (auth != null) ? auth.getName() : null;
@@ -156,7 +166,22 @@ public class PaymentController {
                 ? auth.getAuthorities()
                 : Collections.emptyList();
 
-        paymentService.sendInvoiceEmailManually(paymentId, username, authorities, toEmail);
+        String effectiveLang = resolveLanguage(lang, acceptLanguage);
+        paymentService.sendInvoiceEmailManually(paymentId, username, authorities, toEmail, effectiveLang);
         return ResponseEntity.ok().build();
+    }
+
+    public static String resolveLanguage(String langParam, String acceptHeader) {
+        if (langParam != null && !langParam.isBlank()) {
+            String clean = langParam.trim().toLowerCase();
+            return clean.startsWith("vi") ? "vi" : "en";
+        }
+        if (acceptHeader != null && !acceptHeader.isBlank()) {
+            String first = acceptHeader.split(",")[0].trim();
+            if (first.toLowerCase().startsWith("vi")) {
+                return "vi";
+            }
+        }
+        return "en";
     }
 }

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nhắc lịch đặt bàn</title>
+    <title th:text="#{email.reminder.subject}">Nhắc lịch đặt bàn</title>
 </head>
 <body style="margin:0; padding:24px; background:#f6f4f0;
              font-family:Arial,sans-serif; color:#292929;">
@@ -11,24 +11,29 @@
                 padding:32px; border-radius:12px;">
     <h2 style="color:#8b5e3c;">Castorant</h2>
 
-    <p>Xin chào
-        <strong th:text="${customerName}">Quý khách</strong>,
+    <p th:text="#{email.reminder.greeting(${customerName})}">
+        Xin chào <strong>Quý khách</strong>,
     </p>
 
-    <p>Đây là lời nhắc về lịch đặt bàn của bạn.
-        Nhà hàng rất mong được đón tiếp bạn.</p>
+    <p th:text="#{email.reminder.intro}">
+        Đây là lời nhắc về lịch đặt bàn của bạn. Nhà hàng rất mong được đón tiếp bạn.
+    </p>
 
-    <p>Thời gian đặt bàn:
+    <p>
+        <span th:text="#{email.reminder.time}">Thời gian đặt bàn:</span>
         <strong th:text="${startTime}">19:00</strong>
     </p>
 
-    <p>Mã đặt bàn:
+    <p>
+        <span th:text="#{email.reminder.code}">Mã đặt bàn:</span>
         <strong th:text="${reservationId}">123</strong>
     </p>
 
-    <p>Vui lòng liên hệ nhà hàng nếu bạn cần thay đổi lịch đặt.</p>
+    <p th:text="#{email.reminder.contact}">
+        Vui lòng liên hệ nhà hàng nếu bạn cần thay đổi lịch đặt.
+    </p>
 
-    <p style="margin-top:32px;">
+    <p style="margin-top:32px;" th:text="#{email.reminder.closing}">
         Trân trọng,<br>
         <strong>Đội ngũ Castorant</strong>
     </p>

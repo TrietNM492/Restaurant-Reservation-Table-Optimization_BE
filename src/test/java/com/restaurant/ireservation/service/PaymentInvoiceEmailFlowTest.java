@@ -111,7 +111,7 @@ class PaymentInvoiceEmailFlowTest {
         assertThat(html).contains("INV-100-1");
         assertThat(html).contains("Phan Bảo Thắng");
         assertThat(html).contains("Bò Wagyu Nướng Đá");
-        assertThat(html).contains("Lưu lại hóa đơn (PDF)");
+        assertThat(html).contains("Download Invoice (PDF)");
         assertThat(html).contains(downloadUrl);
 
         // Verify PDF generation produces valid PDF header
@@ -186,12 +186,12 @@ class PaymentInvoiceEmailFlowTest {
         // Verify invoice email was triggered
         ArgumentCaptor<InvoiceResponseDTO> invoiceCaptor = ArgumentCaptor.forClass(InvoiceResponseDTO.class);
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(mailService, times(1)).sendInvoiceEmail(invoiceCaptor.capture(), urlCaptor.capture(), eq(null));
+        verify(mailService, times(1)).sendInvoiceEmail(invoiceCaptor.capture(), urlCaptor.capture(), eq(null), eq("en"));
 
         InvoiceResponseDTO capturedInvoice = invoiceCaptor.getValue();
         assertThat(capturedInvoice.getPaymentId()).isEqualTo(10L);
         assertThat(capturedInvoice.getCustomerEmail()).isEqualTo("thangpb.ce191554@gmail.com");
-        assertThat(urlCaptor.getValue()).isEqualTo("http://localhost:8080/api/v1/payment/10/invoice/download");
+        assertThat(urlCaptor.getValue()).isEqualTo("http://localhost:8080/api/v1/payment/10/invoice/download?lang=en");
     }
 
     @Test
@@ -230,15 +230,15 @@ class PaymentInvoiceEmailFlowTest {
         when(paymentRepository.findWithOrderById(20L)).thenReturn(Optional.of(payment));
         when(orderItemRepository.findAllByOrderId(1L)).thenReturn(Collections.emptyList());
 
-        paymentService.sendInvoiceEmailManually(20L, "thangpb", Collections.emptyList(), "custom-destination@gmail.com");
+        paymentService.sendInvoiceEmailManually(20L, "thangpb", Collections.emptyList(), "custom-destination@gmail.com", "en");
 
         ArgumentCaptor<InvoiceResponseDTO> invoiceCaptor = ArgumentCaptor.forClass(InvoiceResponseDTO.class);
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> emailCaptor = ArgumentCaptor.forClass(String.class);
 
-        verify(mailService, times(1)).sendInvoiceEmail(invoiceCaptor.capture(), urlCaptor.capture(), emailCaptor.capture());
+        verify(mailService, times(1)).sendInvoiceEmail(invoiceCaptor.capture(), urlCaptor.capture(), emailCaptor.capture(), eq("en"));
         assertThat(emailCaptor.getValue()).isEqualTo("custom-destination@gmail.com");
-        assertThat(urlCaptor.getValue()).isEqualTo("http://localhost:8080/api/v1/payment/20/invoice/download");
+        assertThat(urlCaptor.getValue()).isEqualTo("http://localhost:8080/api/v1/payment/20/invoice/download?lang=en");
     }
 
     @Test

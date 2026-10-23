@@ -129,7 +129,8 @@ public class MailService {
             String customerName,
             String reservationCode,
             String reservationTime,
-            int partySize
+            int partySize,
+            String language
     ) throws MessagingException, UnsupportedEncodingException {
 
         boolean allowed = limiter.isAllowed(
@@ -145,23 +146,20 @@ public class MailService {
             );
         }
 
-
-        Context context = new Context();
+        Locale locale = InvoicePdfGenerator.resolveLocale(language);
+        Context context = new Context(locale);
         context.setVariable("brandName", fromName);
         context.setVariable("customerName", customerName);
         context.setVariable("reservationCode", reservationCode);
         context.setVariable("reservationTime", reservationTime);
         context.setVariable("partySize", partySize);
 
-
         String htmlContent = springTemplateEngine.process(
                 "email/reservation-notification",
                 context
         );
 
-
         MimeMessage message = javaMailSender.createMimeMessage();
-
         MimeMessageHelper helper = new MimeMessageHelper(
                 message,
                 true,
@@ -170,41 +168,58 @@ public class MailService {
 
         helper.setFrom(from, fromName);
         helper.setTo(to);
-        helper.setSubject("Castorant - Xác nhận đặt bàn");
+        String subject = messageSource.getMessage("email.reservation.subject", null, locale);
+        helper.setSubject(subject);
         helper.setText(htmlContent, true);
 
         // 4. Send the email
         javaMailSender.send(message);
     }
 
-    public void sendReservationReminder(Notification notification) throws Exception {
+    public void sendReservationConfirmation(
+            String to,
+            String customerName,
+            String reservationCode,
+            String reservationTime,
+            int partySize
+    ) throws MessagingException, UnsupportedEncodingException {
+        sendReservationConfirmation(to, customerName, reservationCode, reservationTime, partySize, "en");
+    }
+
+    public void sendReservationReminder(Notification notification, String language) throws Exception {
         Reservation reservation = notification.getReservation();
         String to = notification.getUser().getEmail();
         String customerName = notification.getUser().getFullname();
 
         ZoneId restaurantZone = ZoneId.of("Asia/Ho_Chi_Minh");
+        Locale locale = InvoicePdfGenerator.resolveLocale(language);
 
         String startTime = reservation.getStartTime()
                 .atZone(restaurantZone)
-                .format(DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy", Locale.forLanguageTag(Constants.DEFAULT_LANGUAGE)));
-        Context context = new Context(new Locale("en", "EN"));
+                .format(DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy", locale));
+        Context context = new Context(locale);
         context.setVariable("customerName", customerName);
         context.setVariable("startTime", startTime);
         context.setVariable("reservationId", reservation.getReservationNo());
         String html = springTemplateEngine.process("email/reminder-notification", context);
-        MimeMessage message= javaMailSender.createMimeMessage();
+        MimeMessage message = javaMailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
         helper.setFrom(from);
         helper.setTo(to);
-        helper.setSubject(notification.getTitle());
+        String subject = (notification.getTitle() != null && !notification.getTitle().isBlank())
+                ? notification.getTitle()
+                : messageSource.getMessage("email.reminder.subject", null, locale);
+        helper.setSubject(subject);
         helper.setText(html, true);
         javaMailSender.send(message);
+    }
 
-
+    public void sendReservationReminder(Notification notification) throws Exception {
+        sendReservationReminder(notification, "en");
     }
 
     @Async
-    public void sendInvoiceEmail(InvoiceResponseDTO invoice, String downloadUrl, String customRecipientEmail) {
+    public void sendInvoiceEmail(InvoiceResponseDTO invoice, String downloadUrl, String customRecipientEmail, String language) {
         if (invoice == null) {
             LOGGER.warn("Cannot send invoice email: invoice data is null");
             return;
@@ -219,9 +234,11 @@ public class MailService {
             return;
         }
 
+        Locale locale = InvoicePdfGenerator.resolveLocale(language);
+
         try {
-            String htmlContent = InvoicePdfGenerator.buildHtml(invoice, downloadUrl, false);
-            byte[] pdfBytes = InvoicePdfGenerator.generatePdf(invoice);
+            String htmlContent = InvoicePdfGenerator.buildHtml(invoice, downloadUrl, false, language);
+            byte[] pdfBytes = InvoicePdfGenerator.generatePdf(invoice, language);
 
             MimeMessage message = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
@@ -230,23 +247,32 @@ public class MailService {
                 helper.setFrom(from, fromName != null ? fromName : "Castorant");
             }
             helper.setTo(recipientEmail.trim());
-            helper.setSubject("Castorant - Hóa đơn thanh toán #" + invoice.getInvoiceNo());
+
+            String subject = messageSource.getMessage("email.invoice.subject", new Object[]{invoice.getInvoiceNo()}, locale);
+            helper.setSubject(subject);
             helper.setText(htmlContent, true);
 
             if (pdfBytes != null && pdfBytes.length > 0) {
-                String filename = "Hoa-don-" + invoice.getInvoiceNo() + ".pdf";
+                String filename = "en".equalsIgnoreCase(locale.getLanguage())
+                        ? ("Invoice-" + invoice.getInvoiceNo() + ".pdf")
+                        : ("Hoa-don-" + invoice.getInvoiceNo() + ".pdf");
                 helper.addAttachment(filename, new ByteArrayResource(pdfBytes));
             }
 
             javaMailSender.send(message);
-            LOGGER.info("Invoice email successfully sent to {} for invoice {}", recipientEmail, invoice.getInvoiceNo());
+            LOGGER.info("Invoice email successfully sent to {} for invoice {} (lang: {})", recipientEmail, invoice.getInvoiceNo(), locale.getLanguage());
         } catch (Exception e) {
             LOGGER.error("Failed to send invoice email for invoice {}: {}", invoice.getInvoiceNo(), e.getMessage(), e);
         }
     }
 
+    @Async
+    public void sendInvoiceEmail(InvoiceResponseDTO invoice, String downloadUrl, String customRecipientEmail) {
+        sendInvoiceEmail(invoice, downloadUrl, customRecipientEmail, "en");
+    }
+
     public void sendInvoiceEmail(InvoiceResponseDTO invoice, String downloadUrl) {
-        sendInvoiceEmail(invoice, downloadUrl, null);
+        sendInvoiceEmail(invoice, downloadUrl, null, "en");
     }
 
 }

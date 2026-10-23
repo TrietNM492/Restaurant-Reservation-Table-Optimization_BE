@@ -463,10 +463,29 @@ class PaymentControllerTest {
         SecurityContextHolder.getContext().setAuthentication(auth);
 
         byte[] fakePdf = "%PDF-1.4 Fake PDF Content".getBytes();
-        when(paymentService.generateInvoicePdf(eq(1L), eq("customer1"), any()))
+        when(paymentService.generateInvoicePdf(eq(1L), eq("customer1"), any(), eq("en")))
                 .thenReturn(fakePdf);
 
         mockMvc.perform(get("/api/v1/payment/1/invoice").param("download", "true"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andExpect(content().bytes(fakePdf));
+
+        SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/payment/{paymentId}/invoice?download=true&lang=en passes English language to service")
+    void testGetInvoice_DownloadPdf_English() throws Exception {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "customer1", "pass", List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")));
+        SecurityContextHolder.getContext().setAuthentication(auth);
+
+        byte[] fakePdf = "%PDF-1.4 English Invoice".getBytes();
+        when(paymentService.generateInvoicePdf(eq(1L), eq("customer1"), any(), eq("en")))
+                .thenReturn(fakePdf);
+
+        mockMvc.perform(get("/api/v1/payment/1/invoice").param("download", "true").param("lang", "en"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_PDF))
                 .andExpect(content().bytes(fakePdf));
@@ -523,7 +542,7 @@ class PaymentControllerTest {
     @DisplayName("GET /api/v1/payment/{paymentId}/invoice/download returns 200 with PDF bytes without authentication")
     void testDownloadInvoicePdfPublic_Success() throws Exception {
         byte[] fakePdf = "%PDF-1.4 dummy invoice content".getBytes();
-        when(paymentService.generateInvoicePdfPublic(1L)).thenReturn(fakePdf);
+        when(paymentService.generateInvoicePdfPublic(1L, "en")).thenReturn(fakePdf);
 
         mockMvc.perform(get("/api/v1/payment/1/invoice/download"))
                 .andExpect(status().isOk())
@@ -533,18 +552,19 @@ class PaymentControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/payment/{paymentId}/send-invoice returns 200 when authenticated")
+    @DisplayName("POST /api/v1/payment/{paymentId}/send-invoice returns 200 with language param")
     void testSendInvoiceEmailManually_Success() throws Exception {
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                 "customer1", "pass", List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")));
         SecurityContextHolder.getContext().setAuthentication(auth);
 
         mockMvc.perform(post("/api/v1/payment/1/send-invoice")
-                        .param("toEmail", "test@gmail.com"))
+                        .param("toEmail", "test@gmail.com")
+                        .param("lang", "en"))
                 .andExpect(status().isOk());
 
         verify(paymentService, times(1))
-                .sendInvoiceEmailManually(eq(1L), eq("customer1"), any(), eq("test@gmail.com"));
+                .sendInvoiceEmailManually(eq(1L), eq("customer1"), any(), eq("test@gmail.com"), eq("en"));
 
         SecurityContextHolder.clearContext();
     }

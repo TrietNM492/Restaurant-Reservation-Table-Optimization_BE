@@ -62,12 +62,28 @@ public class InvoicePdfGenerator {
                 resolver.setCharacterEncoding(StandardCharsets.UTF_8.name());
                 resolver.setCacheable(false);
 
+                org.springframework.context.support.ResourceBundleMessageSource messageSource = new org.springframework.context.support.ResourceBundleMessageSource();
+                messageSource.setBasename("messages");
+                messageSource.setDefaultEncoding(StandardCharsets.UTF_8.name());
+
                 SpringTemplateEngine engine = new SpringTemplateEngine();
                 engine.setTemplateResolver(resolver);
+                engine.setMessageSource(messageSource);
                 templateEngine = engine;
             }
         }
         return templateEngine;
+    }
+
+    public static Locale resolveLocale(String language) {
+        if (language == null || language.isBlank()) {
+            return Locale.ENGLISH;
+        }
+        String clean = language.trim().toLowerCase();
+        if (clean.startsWith("vi")) {
+            return Locale.forLanguageTag("vi");
+        }
+        return Locale.ENGLISH;
     }
 
     public static String formatVnd(BigDecimal amount) {
@@ -84,8 +100,9 @@ public class InvoicePdfGenerator {
         return instant.atZone(VIETNAM_ZONE).format(DATE_FORMATTER);
     }
 
-    public static String buildHtml(InvoiceResponseDTO invoice, String downloadUrl, boolean isPdfMode) {
-        Context context = new Context(Locale.forLanguageTag(Constants.DEFAULT_LANGUAGE));
+    public static String buildHtml(InvoiceResponseDTO invoice, String downloadUrl, boolean isPdfMode, String language) {
+        Locale locale = resolveLocale(language);
+        Context context = new Context(locale);
         context.setVariable("invoice", invoice);
         context.setVariable("downloadUrl", downloadUrl);
         context.setVariable("isPdfMode", isPdfMode);
@@ -109,12 +126,16 @@ public class InvoicePdfGenerator {
         return getTemplateEngine().process("email/invoice-notification", context);
     }
 
-    public static String buildHtml(InvoiceResponseDTO invoice) {
-        return buildHtml(invoice, null, true);
+    public static String buildHtml(InvoiceResponseDTO invoice, String downloadUrl, boolean isPdfMode) {
+        return buildHtml(invoice, downloadUrl, isPdfMode, "en");
     }
 
-    public static byte[] generatePdf(InvoiceResponseDTO invoice) {
-        String html = buildHtml(invoice, null, true);
+    public static String buildHtml(InvoiceResponseDTO invoice) {
+        return buildHtml(invoice, null, true, "en");
+    }
+
+    public static byte[] generatePdf(InvoiceResponseDTO invoice, String language) {
+        String html = buildHtml(invoice, null, true, language);
         try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
             PdfRendererBuilder builder = new PdfRendererBuilder();
             builder.useFastMode();
@@ -143,5 +164,9 @@ public class InvoicePdfGenerator {
             log.error("Failed to generate PDF invoice", e);
             throw new IllegalStateException("Failed to generate PDF invoice: " + e.getMessage(), e);
         }
+    }
+
+    public static byte[] generatePdf(InvoiceResponseDTO invoice) {
+        return generatePdf(invoice, "en");
     }
 }

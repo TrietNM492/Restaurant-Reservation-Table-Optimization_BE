@@ -3,6 +3,7 @@ package com.restaurant.ireservation.util;
 import com.restaurant.ireservation.domain.enumerations.PaymentStatus;
 import com.restaurant.ireservation.dto.response.InvoiceItemResponseDTO;
 import com.restaurant.ireservation.dto.response.InvoiceResponseDTO;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -14,9 +15,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class InvoicePdfGeneratorTest {
 
-    @Test
-    @DisplayName("generatePdf produces valid PDF byte array with UTF-8 Vietnamese characters")
-    void testGeneratePdf_Success() {
+    private InvoiceResponseDTO invoice;
+
+    @BeforeEach
+    void setUp() {
         InvoiceItemResponseDTO item1 = InvoiceItemResponseDTO.builder()
                 .itemName("Phở bò tái nạm đặc biệt")
                 .quantity(2)
@@ -31,7 +33,7 @@ class InvoicePdfGeneratorTest {
                 .subtotal(BigDecimal.valueOf(70000))
                 .build();
 
-        InvoiceResponseDTO invoice = InvoiceResponseDTO.builder()
+        invoice = InvoiceResponseDTO.builder()
                 .restaurantName("Castorant")
                 .restaurantAddress("123 Đường 3/2, Quận 10, TP.HCM")
                 .restaurantPhone("1900 6868")
@@ -54,14 +56,47 @@ class InvoicePdfGeneratorTest {
                 .isFullyPaid(true)
                 .remainingMessage("Fully Paid")
                 .build();
+    }
 
-        byte[] pdfBytes = InvoicePdfGenerator.generatePdf(invoice);
+    @Test
+    @DisplayName("generatePdf produces valid PDF byte array with UTF-8 Vietnamese characters")
+    void testGeneratePdf_Vietnamese_Success() {
+        byte[] pdfBytes = InvoicePdfGenerator.generatePdf(invoice, "vi");
 
         assertThat(pdfBytes).isNotNull();
         assertThat(pdfBytes.length).isGreaterThan(100);
 
-        // Verify PDF Magic Bytes (%PDF-)
         String header = new String(pdfBytes, 0, Math.min(pdfBytes.length, 5));
         assertThat(header).isEqualTo("%PDF-");
+    }
+
+    @Test
+    @DisplayName("generatePdf produces valid PDF byte array in English")
+    void testGeneratePdf_English_Success() {
+        byte[] pdfBytes = InvoicePdfGenerator.generatePdf(invoice, "en");
+
+        assertThat(pdfBytes).isNotNull();
+        assertThat(pdfBytes.length).isGreaterThan(100);
+
+        String header = new String(pdfBytes, 0, Math.min(pdfBytes.length, 5));
+        assertThat(header).isEqualTo("%PDF-");
+    }
+
+    @Test
+    @DisplayName("buildHtml renders Vietnamese i18n text correctly")
+    void testBuildHtml_Vietnamese() {
+        String html = InvoicePdfGenerator.buildHtml(invoice, "http://localhost:8080/api/v1/payment/2/invoice/download", false, "vi");
+        assertThat(html).contains("HÓA ĐƠN THANH TOÁN");
+        assertThat(html).contains("Lưu lại hóa đơn (PDF)");
+        assertThat(html).contains("ĐÃ THANH TOÁN");
+    }
+
+    @Test
+    @DisplayName("buildHtml renders English i18n text correctly")
+    void testBuildHtml_English() {
+        String html = InvoicePdfGenerator.buildHtml(invoice, "http://localhost:8080/api/v1/payment/2/invoice/download?lang=en", false, "en");
+        assertThat(html).contains("PAYMENT INVOICE");
+        assertThat(html).contains("Download Invoice (PDF)");
+        assertThat(html).contains("PAID");
     }
 }

@@ -22,7 +22,7 @@ public class CorsConfig {
                 "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"
         ));
         corsConfiguration.setAllowedHeaders(Arrays.asList(
-                "Authorization", "Content-Type", "Accept", "x-no-retry", "delay"
+                "Authorization", "Content-Type", "Accept", "Accept-Language", "x-no-retry", "delay"
         ));
         corsConfiguration.setAllowCredentials(true);
         corsConfiguration.setMaxAge(3600L);
