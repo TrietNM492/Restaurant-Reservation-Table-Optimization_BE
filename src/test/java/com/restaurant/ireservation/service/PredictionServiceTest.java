@@ -1,5 +1,6 @@
 package com.restaurant.ireservation.service;
 
+import com.restaurant.ireservation.domain.document.WaitingTimeLog;
 import com.restaurant.ireservation.domain.entity.Reservation;
 import com.restaurant.ireservation.domain.entity.ReservationTable;
 import com.restaurant.ireservation.domain.entity.RestaurantTable;
@@ -12,10 +13,12 @@ import com.restaurant.ireservation.dto.response.WaitingTimeResponseDTO;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.ReservationRepository;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
+import com.restaurant.ireservation.repository.WaitingTimeLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -31,7 +34,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class PredictionServiceTest {
@@ -41,6 +44,9 @@ class PredictionServiceTest {
 
     @Mock
     ReservationTableRepository reservationTableRepository;
+
+    @Mock
+    WaitingTimeLogRepository waitingTimeLogRepository;
 
     @InjectMocks
     PredictionService predictionService;
@@ -591,5 +597,143 @@ class PredictionServiceTest {
         assertEquals(WaitStatus.WAITING, response.getWaitStatus());
         assertEquals(6, response.getEstimatedWaitMinutes());
         assertEquals(Instant.parse("2026-10-23T19:05:30Z"), response.getEstimatedReadyTime());
+    }
+
+    @Test
+    @DisplayName("TC-23: Waiting time prediction with WAITING status persists WaitingTimeLog with estimatedWaitMinutes")
+    void predictWaitingTime_waiting_persistsWaitingTimeLog() {
+        Instant start = NOW.plus(Duration.ofHours(1)); // 19:00
+        Instant end = start.plus(Duration.ofHours(2));   // 21:00
+        Reservation target = buildReservation(23L, ReservationStatus.CONFIRMED, ReservationType.TABLE, start, end, USERNAME);
+        RestaurantTable table = buildTable(10L, TableStatus.AVAILABLE);
+
+        Instant prevEnd = start.minus(Duration.ofMinutes(10)); // 18:50 -> ready at 19:05 -> 5m wait
+        Reservation prev = buildReservation(99L, ReservationStatus.COMPLETED, ReservationType.TABLE,
+                start.minus(Duration.ofHours(1)), prevEnd, "other");
+        ReservationTable rtPrev = buildReservationTable(prev, table);
+
+        when(reservationRepository.findById(23L)).thenReturn(Optional.of(target));
+        when(reservationTableRepository.findByReservationId(23L)).thenReturn(List.of(buildReservationTable(target, table)));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(anyList(), eq(23L), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(reservationTableRepository.findPrecedingBookingsForTurnaround(eq(10L), eq(23L), anyCollection(), any(), any()))
+                .thenReturn(List.of(rtPrev));
+
+        WaitingTimeResponseDTO response = predictionService.predictWaitingTime(new WaitingTimeRequestDTO(23L), USERNAME);
+
+        assertEquals(WaitStatus.WAITING, response.getWaitStatus());
+        assertEquals(5, response.getEstimatedWaitMinutes());
+
+        ArgumentCaptor<WaitingTimeLog> logCaptor = ArgumentCaptor.forClass(WaitingTimeLog.class);
+        verify(waitingTimeLogRepository, times(1)).save(logCaptor.capture());
+
+        WaitingTimeLog captured = logCaptor.getValue();
+        assertEquals(23L, captured.getReservationId());
+        assertEquals(5, captured.getEstimatedWaitMinutes());
+        assertEquals(0, captured.getActualWaitMinutes());
+        assertEquals(NOW, captured.getCreateAt());
+        assertEquals(NOW, captured.getUpdateAt());
+    }
+
+    @Test
+    @DisplayName("TC-24: Waiting time prediction with READY status persists WaitingTimeLog with estimatedWaitMinutes = 0")
+    void predictWaitingTime_ready_persistsWaitingTimeLogWithZeroWait() {
+        Instant start = NOW.minus(Duration.ofMinutes(10)); // 17:50
+        Instant end = start.plus(Duration.ofHours(2));
+        Reservation target = buildReservation(24L, ReservationStatus.CONFIRMED, ReservationType.TABLE, start, end, USERNAME);
+        RestaurantTable table = buildTable(10L, TableStatus.AVAILABLE);
+
+        when(reservationRepository.findById(24L)).thenReturn(Optional.of(target));
+        when(reservationTableRepository.findByReservationId(24L)).thenReturn(List.of(buildReservationTable(target, table)));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(anyList(), eq(24L), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(reservationTableRepository.findPrecedingBookingsForTurnaround(eq(10L), eq(24L), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+
+        WaitingTimeResponseDTO response = predictionService.predictWaitingTime(new WaitingTimeRequestDTO(24L), USERNAME);
+
+        assertEquals(WaitStatus.READY, response.getWaitStatus());
+        assertEquals(0, response.getEstimatedWaitMinutes());
+
+        ArgumentCaptor<WaitingTimeLog> logCaptor = ArgumentCaptor.forClass(WaitingTimeLog.class);
+        verify(waitingTimeLogRepository, times(1)).save(logCaptor.capture());
+
+        WaitingTimeLog captured = logCaptor.getValue();
+        assertEquals(24L, captured.getReservationId());
+        assertEquals(0, captured.getEstimatedWaitMinutes());
+        assertEquals(0, captured.getActualWaitMinutes());
+    }
+
+    @Test
+    @DisplayName("TC-25: Waiting time prediction with SCHEDULED status persists WaitingTimeLog with estimatedWaitMinutes = 0")
+    void predictWaitingTime_scheduled_persistsWaitingTimeLogWithZeroWait() {
+        Instant start = NOW.plus(Duration.ofHours(1)); // 19:00
+        Instant end = start.plus(Duration.ofHours(2));
+        Reservation target = buildReservation(25L, ReservationStatus.CONFIRMED, ReservationType.TABLE, start, end, USERNAME);
+        RestaurantTable table = buildTable(10L, TableStatus.AVAILABLE);
+
+        when(reservationRepository.findById(25L)).thenReturn(Optional.of(target));
+        when(reservationTableRepository.findByReservationId(25L)).thenReturn(List.of(buildReservationTable(target, table)));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(anyList(), eq(25L), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(reservationTableRepository.findPrecedingBookingsForTurnaround(eq(10L), eq(25L), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+
+        WaitingTimeResponseDTO response = predictionService.predictWaitingTime(new WaitingTimeRequestDTO(25L), USERNAME);
+
+        assertEquals(WaitStatus.SCHEDULED, response.getWaitStatus());
+        assertEquals(0, response.getEstimatedWaitMinutes());
+
+        ArgumentCaptor<WaitingTimeLog> logCaptor = ArgumentCaptor.forClass(WaitingTimeLog.class);
+        verify(waitingTimeLogRepository, times(1)).save(logCaptor.capture());
+
+        WaitingTimeLog captured = logCaptor.getValue();
+        assertEquals(25L, captured.getReservationId());
+        assertEquals(0, captured.getEstimatedWaitMinutes());
+        assertEquals(0, captured.getActualWaitMinutes());
+    }
+
+    @Test
+    @DisplayName("TC-26: Non-numeric status (UNASSIGNED, CONFLICT, etc.) does NOT persist WaitingTimeLog")
+    void predictWaitingTime_unassigned_doesNotPersistWaitingTimeLog() {
+        Instant start = NOW.plus(Duration.ofHours(1));
+        Instant end = start.plus(Duration.ofHours(2));
+        Reservation target = buildReservation(26L, ReservationStatus.CONFIRMED, ReservationType.TABLE, start, end, USERNAME);
+
+        when(reservationRepository.findById(26L)).thenReturn(Optional.of(target));
+        when(reservationTableRepository.findByReservationId(26L)).thenReturn(Collections.emptyList());
+
+        WaitingTimeResponseDTO response = predictionService.predictWaitingTime(new WaitingTimeRequestDTO(26L), USERNAME);
+
+        assertEquals(WaitStatus.UNASSIGNED, response.getWaitStatus());
+        assertNull(response.getEstimatedWaitMinutes());
+
+        verify(waitingTimeLogRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("TC-27: Mongo repository save failure is caught and logged, returning response without exception")
+    void predictWaitingTime_mongoFailure_doesNotThrowAndReturnsResponse() {
+        Instant start = NOW.plus(Duration.ofHours(1));
+        Instant end = start.plus(Duration.ofHours(2));
+        Reservation target = buildReservation(27L, ReservationStatus.CONFIRMED, ReservationType.TABLE, start, end, USERNAME);
+        RestaurantTable table = buildTable(10L, TableStatus.AVAILABLE);
+
+        when(reservationRepository.findById(27L)).thenReturn(Optional.of(target));
+        when(reservationTableRepository.findByReservationId(27L)).thenReturn(List.of(buildReservationTable(target, table)));
+        when(reservationTableRepository.findConflictingReservationsExcludingReservation(anyList(), eq(27L), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(reservationTableRepository.findPrecedingBookingsForTurnaround(eq(10L), eq(27L), anyCollection(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(waitingTimeLogRepository.save(any(WaitingTimeLog.class)))
+                .thenThrow(new RuntimeException("MongoDB connection timeout"));
+
+        WaitingTimeResponseDTO response = assertDoesNotThrow(() ->
+                predictionService.predictWaitingTime(new WaitingTimeRequestDTO(27L), USERNAME)
+        );
+
+        assertEquals(WaitStatus.SCHEDULED, response.getWaitStatus());
+        assertEquals(0, response.getEstimatedWaitMinutes());
+        verify(waitingTimeLogRepository, times(1)).save(any(WaitingTimeLog.class));
     }
 }

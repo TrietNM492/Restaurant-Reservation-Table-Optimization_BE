@@ -1,5 +1,6 @@
 package com.restaurant.ireservation.service;
 
+import com.restaurant.ireservation.domain.document.WaitingTimeLog;
 import com.restaurant.ireservation.domain.entity.Reservation;
 import com.restaurant.ireservation.domain.entity.ReservationTable;
 import com.restaurant.ireservation.domain.entity.RestaurantTable;
@@ -12,10 +13,12 @@ import com.restaurant.ireservation.dto.response.WaitingTimeResponseDTO;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.repository.ReservationRepository;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
+import com.restaurant.ireservation.repository.WaitingTimeLogRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.FieldDefaults;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +31,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
@@ -38,6 +42,7 @@ public class PredictionService {
 
     final ReservationRepository reservationRepository;
     final ReservationTableRepository reservationTableRepository;
+    final WaitingTimeLogRepository waitingTimeLogRepository;
 
     @Setter
     Clock clock = Clock.systemUTC();
@@ -158,24 +163,28 @@ public class PredictionService {
                         + " based on prior reservation turnaround.";
             }
 
-            return WaitingTimeResponseDTO.builder()
+            WaitingTimeResponseDTO response = WaitingTimeResponseDTO.builder()
                     .reservationId(reservation.getId())
                     .waitStatus(WaitStatus.WAITING)
                     .estimatedWaitMinutes(waitMinutes)
                     .estimatedReadyTime(aggregateReady)
                     .message(message)
                     .build();
+            persistWaitingTimeLog(reservation.getId(), response.getEstimatedWaitMinutes());
+            return response;
         }
 
         // Ready or scheduled without delay
         if (now.isBefore(reservation.getStartTime())) {
-            return WaitingTimeResponseDTO.builder()
+            WaitingTimeResponseDTO response = WaitingTimeResponseDTO.builder()
                     .reservationId(reservation.getId())
                     .waitStatus(WaitStatus.SCHEDULED)
                     .estimatedWaitMinutes(0)
                     .estimatedReadyTime(reservation.getStartTime())
                     .message("Reservation is scheduled on time. Ready time reflects your reserved slot; table preparation occurs prior to arrival.")
                     .build();
+            persistWaitingTimeLog(reservation.getId(), response.getEstimatedWaitMinutes());
+            return response;
         } else {
             String message;
             if (reservation.getReservationStatus() == ReservationStatus.IN_PROGRESS) {
@@ -184,13 +193,34 @@ public class PredictionService {
                 message = "No wait predicted based on current reservation records. Please see the host for seating.";
             }
 
-            return WaitingTimeResponseDTO.builder()
+            WaitingTimeResponseDTO response = WaitingTimeResponseDTO.builder()
                     .reservationId(reservation.getId())
                     .waitStatus(WaitStatus.READY)
                     .estimatedWaitMinutes(0)
                     .estimatedReadyTime(now)
                     .message(message)
                     .build();
+            persistWaitingTimeLog(reservation.getId(), response.getEstimatedWaitMinutes());
+            return response;
+        }
+    }
+
+    private void persistWaitingTimeLog(Long reservationId, Integer estimatedWaitMinutes) {
+        if (estimatedWaitMinutes == null) {
+            return;
+        }
+        try {
+            Instant now = (clock != null) ? clock.instant() : Instant.now();
+            WaitingTimeLog logEntry = WaitingTimeLog.builder()
+                    .reservationId(reservationId)
+                    .estimatedWaitMinutes(estimatedWaitMinutes)
+                    .actualWaitMinutes(0)
+                    .createAt(now)
+                    .updateAt(now)
+                    .build();
+            waitingTimeLogRepository.save(logEntry);
+        } catch (Exception e) {
+            log.error("Failed to persist waiting time log for reservation id {}", reservationId, e);
         }
     }
 
