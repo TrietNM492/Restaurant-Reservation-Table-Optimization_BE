@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thông báo hủy đặt bàn</title>
+</head>
+<body style="margin:0; padding:24px; background:#f6f4f0;
+             font-family:Arial,sans-serif; color:#292929;">
+<div style="max-width:600px; margin:auto; background:#ffffff;
+                padding:32px; border-radius:12px;">
+    <h2 style="color:#8b5e3c;" th:text="${brandName}">Castorant</h2>
+
+    <p>Xin chào
+        <strong th:text="${customerName}">Quý khách</strong>,
+    </p>
+
+    <p>Đặt bàn của bạn đã bị hủy tự động do quá giờ nhận bàn mà chưa được nhận bàn.</p>
+
+    <p>Mã đặt bàn:
+        <strong th:text="${reservationNo}">RES-001</strong>
+    </p>
+
+    <p>Thời gian đặt bàn:
+        <strong th:text="${reservationTime}">19:00 24/10/2026</strong>
+    </p>
+
+    <p>Nếu bạn vẫn có nhu cầu dùng bữa, vui lòng đặt bàn mới trên hệ thống hoặc liên hệ với nhà hàng để được hỗ trợ.</p>
+
+    <p style="margin-top:32px;">
+        Trân trọng,<br>
+        <strong th:text="${brandName}">Đội ngũ Castorant</strong>
+    </p>
+</div>
+</body>
+</html>

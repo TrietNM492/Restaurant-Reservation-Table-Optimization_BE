@@ -25,6 +25,7 @@ import org.thymeleaf.spring6.SpringTemplateEngine;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -142,7 +143,6 @@ public class MailService {
             );
         }
 
-
         Context context = new Context();
         context.setVariable("brandName", fromName);
         context.setVariable("customerName", customerName);
@@ -150,12 +150,10 @@ public class MailService {
         context.setVariable("reservationTime", reservationTime);
         context.setVariable("partySize", partySize);
 
-
         String htmlContent = springTemplateEngine.process(
                 "email/reservation-notification",
                 context
         );
-
 
         MimeMessage message = javaMailSender.createMimeMessage();
 
@@ -189,16 +187,42 @@ public class MailService {
         context.setVariable("startTime", startTime);
         context.setVariable("reservationId", reservation.getReservationNo());
         String html = springTemplateEngine.process("email/reminder-notification", context);
-        MimeMessage message= javaMailSender.createMimeMessage();
+        MimeMessage message = javaMailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
         helper.setFrom(from);
         helper.setTo(to);
         helper.setSubject(notification.getTitle());
         helper.setText(html, true);
         javaMailSender.send(message);
-
-
     }
 
+    public void sendReservationAutoCancellation(
+            String to,
+            String customerName,
+            String reservationNo,
+            Instant startTime
+    ) throws Exception {
+        ZoneId restaurantZone = ZoneId.of("Asia/Ho_Chi_Minh");
+        String formattedTime = (startTime != null)
+                ? startTime.atZone(restaurantZone)
+                        .format(DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy", Locale.forLanguageTag(Constants.DEFAULT_LANGUAGE)))
+                : "N/A";
 
+        Context context = new Context(Locale.forLanguageTag(Constants.DEFAULT_LANGUAGE));
+        context.setVariable("customerName", (customerName != null && !customerName.isBlank()) ? customerName : "Quý khách");
+        context.setVariable("reservationNo", reservationNo != null ? reservationNo : "");
+        context.setVariable("reservationTime", formattedTime);
+        context.setVariable("brandName", (fromName != null && !fromName.isBlank()) ? fromName : "Castorant");
+
+        String html = springTemplateEngine.process("email/cancellation-notification", context);
+
+        MimeMessage message = javaMailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
+        helper.setFrom(from, fromName);
+        helper.setTo(to);
+        helper.setSubject("Castorant - Thông báo hủy đặt bàn do quá giờ nhận bàn");
+        helper.setText(html, true);
+
+        javaMailSender.send(message);
+    }
 }
