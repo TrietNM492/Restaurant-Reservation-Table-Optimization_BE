@@ -38,6 +38,7 @@ public class OrderService {
     final RestaurantTableRepository restaurantTableRepository;
     final ReservationRepository reservationRepository;
     final ReservationTableRepository reservationTableRepository;
+    final ReservationRoomRepository reservationRoomRepository;
     final MenuItemRepository menuItemRepository;
     final CustomerRepository customerRepository;
     final UserRepository userRepository;
@@ -106,20 +107,35 @@ public class OrderService {
         // 4. Generate orderNo (ORD-ddMMyyyy-XXX)
         String orderNo = generateOrderNo();
 
-        // 5. Build Order entity
+        // 5. Determine VIP Room & calculate room fee
+        boolean isVip = Boolean.TRUE.equals(request.getIsVipRoom());
+        BigDecimal roomCharge = BigDecimal.ZERO;
+        if (reservation != null && reservationRoomRepository != null) {
+            List<ReservationRoom> resRooms = reservationRoomRepository.findByReservationId(reservation.getId());
+            if (!resRooms.isEmpty()) {
+                isVip = true;
+                for (ReservationRoom rr : resRooms) {
+                    if (rr.getRoom() != null && rr.getRoom().getPrice() > 0) {
+                        roomCharge = roomCharge.add(BigDecimal.valueOf(rr.getRoom().getPrice()));
+                    }
+                }
+            }
+        }
+
+        // 6. Build Order entity
         Order order = Order.builder()
                 .orderNo(orderNo)
                 .reservation(reservation)
                 .customerInformation(customerInfo)
                 .orderStatus(OrderStatus.PENDING)
-                .isVipRoom(Boolean.TRUE.equals(request.getIsVipRoom()))
-                .totalAmount(0.0)
+                .isVipRoom(isVip)
+                .totalAmount(roomCharge.doubleValue())
                 .build();
         order.setCreatedBy(username);
         Order savedOrder = orderRepository.save(order);
 
-        // 6. Process initial items if present
-        BigDecimal totalAmount = BigDecimal.ZERO;
+        // 7. Process initial items if present
+        BigDecimal totalAmount = roomCharge;
         List<OrderItem> savedItems = new ArrayList<>();
 
         if (request.getItems() != null && !request.getItems().isEmpty()) {

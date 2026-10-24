@@ -12,6 +12,7 @@ import com.restaurant.ireservation.dto.response.InvoiceResponseDTO;
 import com.restaurant.ireservation.repository.OrderItemRepository;
 import com.restaurant.ireservation.repository.OrderRepository;
 import com.restaurant.ireservation.repository.PaymentRepository;
+import com.restaurant.ireservation.repository.ReservationRepository;
 import com.restaurant.ireservation.util.InvoicePdfGenerator;
 import com.restaurant.ireservation.util.VnPayUtil;
 import jakarta.mail.Session;
@@ -47,6 +48,9 @@ class PaymentInvoiceEmailFlowTest {
     OrderItemRepository orderItemRepository;
 
     @Mock
+    ReservationRepository reservationRepository;
+
+    @Mock
     VnPayConfig vnPayConfig;
 
     @Mock
@@ -63,6 +67,7 @@ class PaymentInvoiceEmailFlowTest {
                 paymentRepository,
                 orderRepository,
                 orderItemRepository,
+                reservationRepository,
                 vnPayConfig,
                 mailService
         );
