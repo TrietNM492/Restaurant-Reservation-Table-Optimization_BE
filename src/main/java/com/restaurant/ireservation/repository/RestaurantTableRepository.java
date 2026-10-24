@@ -2,6 +2,7 @@ package com.restaurant.ireservation.repository;
 
 import com.restaurant.ireservation.domain.entity.RestaurantTable;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
+import com.restaurant.ireservation.dto.projection.OccupancyStatsProjection;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -54,4 +55,29 @@ public interface RestaurantTableRepository extends JpaRepository<RestaurantTable
     java.util.List<RestaurantTable> findAllByOrderByTableNumberAsc();
 
     java.util.List<RestaurantTable> findByAreaIdOrderByTableNumberAsc(Long areaId);
+
+    @Query("""
+            SELECT
+                        COUNT(t) AS totalTables,
+                        COALESCE(
+                            SUM(CASE
+                                WHEN t.statusCode = :inUse THEN 1
+                                ELSE 0
+                            END), 0
+                        ) AS occupiedTables,
+                        COALESCE(
+                            SUM(CASE
+                                WHEN t.statusCode = :available THEN 1
+                                ELSE 0
+                            END), 0
+                        ) AS availableTables
+                    FROM RestaurantTable t
+                    WHERE t.statusCode <> :locked
+            
+            """)
+    OccupancyStatsProjection getOccupacyStats(
+            @Param("inUse") TableStatus inUse,
+            @Param("available") TableStatus available,
+            @Param("locked") TableStatus locked
+    );
 }
