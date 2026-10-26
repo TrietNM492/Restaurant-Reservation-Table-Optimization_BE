@@ -46,8 +46,14 @@ import static org.mockito.Mockito.*;
 
 import com.restaurant.ireservation.domain.entity.MenuItem;
 import com.restaurant.ireservation.domain.entity.OrderItem;
+import com.restaurant.ireservation.domain.entity.Reservation;
+import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.dto.response.InvoiceResponseDTO;
 import com.restaurant.ireservation.repository.OrderItemRepository;
+import com.restaurant.ireservation.repository.ReservationRepository;
+
+import java.time.Duration;
+import java.time.Instant;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentServiceTest {
@@ -62,6 +68,9 @@ class PaymentServiceTest {
     OrderItemRepository orderItemRepository;
 
     @Mock
+    ReservationRepository reservationRepository;
+
+    @Mock
     VnPayConfig vnPayConfig;
 
     @InjectMocks
@@ -69,6 +78,7 @@ class PaymentServiceTest {
 
     User sampleUser;
     CustomerInformation sampleCustomer;
+    Reservation sampleReservation;
     Order sampleOrder;
 
     @BeforeEach
@@ -84,11 +94,20 @@ class PaymentServiceTest {
                 .build();
         sampleCustomer.setId(20L);
 
+        sampleReservation = Reservation.builder()
+                .reservationNo("RES-24102026-001")
+                .startTime(Instant.now().plus(Duration.ofDays(1)))
+                .endTime(Instant.now().plus(Duration.ofDays(1)).plus(Duration.ofHours(2)))
+                .reservationStatus(ReservationStatus.PENDING)
+                .build();
+        sampleReservation.setId(30L);
+
         sampleOrder = Order.builder()
                 .orderNo("ORD-16102026-001")
                 .customerInformation(sampleCustomer)
                 .orderStatus(OrderStatus.AWAITING_PAYMENT)
                 .totalAmount(150000.0) // 150,000 VND
+                .reservation(sampleReservation)
                 .build();
         sampleOrder.setId(100L);
     }
@@ -142,7 +161,7 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("createPayment succeeds when creating a partial payment (>= 10% and >= 5000)")
+    @DisplayName("createPayment succeeds when creating a partial payment (>= 50% and >= 5000)")
     void testCreatePayment_Success_PartialPayment() {
         mockVnPayConfig();
         when(orderRepository.findByIdWithLock(100L)).thenReturn(Optional.of(sampleOrder));
@@ -153,16 +172,16 @@ class PaymentServiceTest {
         Payment savedPayment = Payment.builder()
                 .order(sampleOrder)
                 .discountRate(0)
-                .totalFinalPrice(50000.0)
+                .totalFinalPrice(75000.0)
                 .paymentStatus(PaymentStatus.PENDING)
                 .build();
         savedPayment.setId(501L);
         when(paymentRepository.save(any(Payment.class))).thenReturn(savedPayment);
 
-        // 50,000 VND is > 10% of 150,000 (15,000 VND) and > 5,000 VND
+        // 75,000 VND is exactly 50% of 150,000 VND
         CreatePaymentRequestDTO request = CreatePaymentRequestDTO.builder()
                 .orderId(100L)
-                .amount(BigDecimal.valueOf(50000))
+                .amount(BigDecimal.valueOf(75000))
                 .build();
         var authorities = List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER"));
 
@@ -170,8 +189,8 @@ class PaymentServiceTest {
 
         assertThat(response).isNotNull();
         assertThat(response.getId()).isEqualTo(501L);
-        assertThat(response.getTotalFinalPrice()).isEqualByComparingTo(BigDecimal.valueOf(50000.0));
-        assertThat(response.getPaymentUrl()).contains("vnp_Amount=5000000");
+        assertThat(response.getTotalFinalPrice()).isEqualByComparingTo(BigDecimal.valueOf(75000.0));
+        assertThat(response.getPaymentUrl()).contains("vnp_Amount=7500000");
     }
 
     @Test
@@ -194,7 +213,7 @@ class PaymentServiceTest {
 
         CreatePaymentRequestDTO request = CreatePaymentRequestDTO.builder()
                 .orderId(100L)
-                .amount(BigDecimal.valueOf(60000))
+                .amount(BigDecimal.valueOf(80000))
                 .build();
         var authorities = List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER"));
 
@@ -202,7 +221,7 @@ class PaymentServiceTest {
 
         assertThat(response).isNotNull();
         assertThat(response.getId()).isEqualTo(555L);
-        assertThat(existingPayment.getTotalFinalPrice()).isEqualTo(60000.0);
+        assertThat(existingPayment.getTotalFinalPrice()).isEqualTo(80000.0);
         verify(paymentRepository, times(1)).save(existingPayment);
     }
 
@@ -234,35 +253,35 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("createPayment throws exception when partial amount is less than 10% of order total")
-    void testCreatePayment_ThrowsWhenPartialAmountLessThan10Percent() {
+    @DisplayName("createPayment throws exception when partial amount is less than 50% of order total")
+    void testCreatePayment_ThrowsWhenPartialAmountLessThan50Percent() {
         when(vnPayConfig.isConfigured()).thenReturn(true);
         when(orderRepository.findByIdWithLock(100L)).thenReturn(Optional.of(sampleOrder));
         when(paymentRepository.sumPaidAmountByOrderIdAndStatuses(eq(100L), any())).thenReturn(0.0);
 
-        // 10% of 150,000 is 15,000. Customer requests 10,000 -> should throw
+        // 50% of 150,000 is 75,000. Customer requests 50,000 -> should throw
         CreatePaymentRequestDTO request = CreatePaymentRequestDTO.builder()
                 .orderId(100L)
-                .amount(BigDecimal.valueOf(10000))
+                .amount(BigDecimal.valueOf(50000))
                 .build();
         var authorities = List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER"));
 
         assertThatThrownBy(() -> paymentService.createPayment(request, "john_doe", authorities, "127.0.0.1"))
                 .isInstanceOf(RequestInvalidException.class)
-                .hasMessageContaining("at least 10%");
+                .hasMessageContaining("at least 50%");
     }
 
     @Test
-    @DisplayName("createPayment throws exception when 10% is below 5,000 VND (order is low-value, partial pay disabled)")
+    @DisplayName("createPayment throws exception when 50% is below 5,000 VND (order is low-value, partial pay disabled)")
     void testCreatePayment_ThrowsWhenLowValueOrderTriesPartialPayment() {
         when(vnPayConfig.isConfigured()).thenReturn(true);
-        sampleOrder.setTotalAmount(20000.0); // 10% is 2,000 VND < 5,000 VND
+        sampleOrder.setTotalAmount(8000.0); // 50% is 4,000 VND < 5,000 VND
         when(orderRepository.findByIdWithLock(100L)).thenReturn(Optional.of(sampleOrder));
         when(paymentRepository.sumPaidAmountByOrderIdAndStatuses(eq(100L), any())).thenReturn(0.0);
 
         CreatePaymentRequestDTO request = CreatePaymentRequestDTO.builder()
                 .orderId(100L)
-                .amount(BigDecimal.valueOf(10000)) // Tried partial pay
+                .amount(BigDecimal.valueOf(4000)) // Tried partial pay
                 .build();
         var authorities = List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER"));
 
@@ -272,7 +291,7 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("createPayment with GOLDEN rank applies 5% discount and calculates remaining and 10% deposit on discounted total")
+    @DisplayName("createPayment with GOLDEN rank applies 5% discount and calculates remaining and 50% deposit on discounted total")
     void testCreatePayment_GoldenRank_Applies5PercentDiscount() {
         mockVnPayConfig();
         sampleCustomer.setCustomerRank(RankCustomer.GOLDEN);
@@ -305,7 +324,7 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("createPayment with DIAMOND rank applies 10% discount and allows partial payment at least 10% of discounted total")
+    @DisplayName("createPayment with DIAMOND rank applies 10% discount and allows partial payment at least 50% of discounted total")
     void testCreatePayment_DiamondRank_Applies10PercentDiscount() {
         mockVnPayConfig();
         sampleCustomer.setCustomerRank(RankCustomer.DIAMOND);
@@ -317,9 +336,10 @@ class PaymentServiceTest {
         when(paymentRepository.findFirstByOrderIdAndPaymentStatusOrderByCreatedDateDesc(eq(100L), eq(PaymentStatus.PENDING)))
                 .thenReturn(Optional.empty());
 
+        // 200,000 with 10% discount is 180,000. 50% deposit is 90,000.
         Payment savedPayment = Payment.builder()
                 .order(sampleOrder)
-                .totalFinalPrice(18000.0)
+                .totalFinalPrice(90000.0)
                 .discountRate(10)
                 .paymentStatus(PaymentStatus.PENDING)
                 .build();
@@ -328,14 +348,105 @@ class PaymentServiceTest {
 
         CreatePaymentRequestDTO request = CreatePaymentRequestDTO.builder()
                 .orderId(100L)
-                .amount(BigDecimal.valueOf(18000))
+                .amount(BigDecimal.valueOf(90000))
                 .build();
         var authorities = List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER"));
 
         PaymentResponseDTO response = paymentService.createPayment(request, "john_doe", authorities, "127.0.0.1");
 
         assertThat(response.getDiscountRate()).isEqualTo(10);
-        assertThat(response.getTotalFinalPrice()).isEqualByComparingTo(BigDecimal.valueOf(18000));
+        assertThat(response.getTotalFinalPrice()).isEqualByComparingTo(BigDecimal.valueOf(90000));
+    }
+
+    @Test
+    @DisplayName("createPayment throws exception when dining time has passed and customer tries partial payment")
+    void testCreatePayment_ThrowsWhenDiningTimePassedTriesPartialPayment() {
+        when(vnPayConfig.isConfigured()).thenReturn(true);
+        // Reservation start time was 1 hour ago
+        sampleReservation.setStartTime(Instant.now().minus(Duration.ofHours(1)));
+        when(orderRepository.findByIdWithLock(100L)).thenReturn(Optional.of(sampleOrder));
+        when(paymentRepository.sumPaidAmountByOrderIdAndStatuses(eq(100L), any())).thenReturn(0.0);
+
+        CreatePaymentRequestDTO request = CreatePaymentRequestDTO.builder()
+                .orderId(100L)
+                .amount(BigDecimal.valueOf(75000)) // Trying partial payment after arrival time
+                .build();
+        var authorities = List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER"));
+
+        assertThatThrownBy(() -> paymentService.createPayment(request, "john_doe", authorities, "127.0.0.1"))
+                .isInstanceOf(RequestInvalidException.class)
+                .hasMessageContaining("Dining time has started or passed. Please pay the full remaining amount");
+    }
+
+    @Test
+    @DisplayName("createPayment transitions PENDING order to AWAITING_PAYMENT")
+    void testCreatePayment_TransitionsPendingOrderToAwaitingPayment() {
+        mockVnPayConfig();
+        sampleOrder.setOrderStatus(OrderStatus.PENDING);
+        when(orderRepository.findByIdWithLock(100L)).thenReturn(Optional.of(sampleOrder));
+        when(paymentRepository.sumPaidAmountByOrderIdAndStatuses(eq(100L), any())).thenReturn(0.0);
+        when(paymentRepository.findFirstByOrderIdAndPaymentStatusOrderByCreatedDateDesc(eq(100L), eq(PaymentStatus.PENDING)))
+                .thenReturn(Optional.empty());
+
+        Payment savedPayment = Payment.builder()
+                .order(sampleOrder)
+                .totalFinalPrice(150000.0)
+                .paymentStatus(PaymentStatus.PENDING)
+                .build();
+        savedPayment.setId(103L);
+        when(paymentRepository.save(any(Payment.class))).thenReturn(savedPayment);
+
+        CreatePaymentRequestDTO request = CreatePaymentRequestDTO.builder()
+                .orderId(100L)
+                .build();
+        var authorities = List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER"));
+
+        paymentService.createPayment(request, "john_doe", authorities, "127.0.0.1");
+
+        assertThat(sampleOrder.getOrderStatus()).isEqualTo(OrderStatus.AWAITING_PAYMENT);
+        verify(orderRepository, times(1)).save(sampleOrder);
+    }
+
+    @Test
+    @DisplayName("createPayment calculates required cumulative deposit correctly when dishes are added")
+    void testCreatePayment_CumulativeDepositWhenDishesAdded() {
+        mockVnPayConfig();
+        // Total order is 200,000 VND. 50% target is 100,000 VND.
+        sampleOrder.setTotalAmount(200000.0);
+        // Already paid 50,000 VND previously.
+        when(orderRepository.findByIdWithLock(100L)).thenReturn(Optional.of(sampleOrder));
+        when(paymentRepository.sumPaidAmountByOrderIdAndStatuses(eq(100L), any())).thenReturn(50000.0);
+
+        // Trying to pay 40,000 VND (less than remaining required deposit 50,000 VND) -> throws
+        CreatePaymentRequestDTO lowRequest = CreatePaymentRequestDTO.builder()
+                .orderId(100L)
+                .amount(BigDecimal.valueOf(40000))
+                .build();
+        var authorities = List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER"));
+
+        assertThatThrownBy(() -> paymentService.createPayment(lowRequest, "john_doe", authorities, "127.0.0.1"))
+                .isInstanceOf(RequestInvalidException.class)
+                .hasMessageContaining("at least 50%");
+
+        // Now trying to pay 50,000 VND (exact remaining required deposit) -> succeeds
+        when(paymentRepository.findFirstByOrderIdAndPaymentStatusOrderByCreatedDateDesc(eq(100L), eq(PaymentStatus.PENDING)))
+                .thenReturn(Optional.empty());
+        Payment savedPayment = Payment.builder()
+                .order(sampleOrder)
+                .totalFinalPrice(50000.0)
+                .paymentStatus(PaymentStatus.PENDING)
+                .build();
+        savedPayment.setId(104L);
+        when(paymentRepository.save(any(Payment.class))).thenReturn(savedPayment);
+
+        CreatePaymentRequestDTO validRequest = CreatePaymentRequestDTO.builder()
+                .orderId(100L)
+                .amount(BigDecimal.valueOf(50000))
+                .build();
+
+        PaymentResponseDTO response = paymentService.createPayment(validRequest, "john_doe", authorities, "127.0.0.1");
+        assertThat(response).isNotNull();
+        assertThat(response.getTotalFinalPrice()).isEqualByComparingTo(BigDecimal.valueOf(50000.0));
     }
 
     @Test
@@ -461,10 +572,10 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("createPayment throws exception when order is NOT in AWAITING_PAYMENT status")
+    @DisplayName("createPayment throws exception when order is in invalid status (e.g. COMPLETED)")
     void testCreatePayment_ThrowsWhenOrderNotAwaitingPayment() {
         when(vnPayConfig.isConfigured()).thenReturn(true);
-        sampleOrder.setOrderStatus(OrderStatus.PENDING);
+        sampleOrder.setOrderStatus(OrderStatus.COMPLETED);
         when(orderRepository.findByIdWithLock(100L)).thenReturn(Optional.of(sampleOrder));
 
         CreatePaymentRequestDTO request = CreatePaymentRequestDTO.builder().orderId(100L).build();
@@ -472,7 +583,7 @@ class PaymentServiceTest {
 
         assertThatThrownBy(() -> paymentService.createPayment(request, "john_doe", authorities, "127.0.0.1"))
                 .isInstanceOf(RequestInvalidException.class)
-                .hasMessageContaining("Order must be in AWAITING_PAYMENT status");
+                .hasMessageContaining("Order must be in PENDING or AWAITING_PAYMENT status");
     }
 
     // ==========================================
@@ -511,8 +622,10 @@ class PaymentServiceTest {
         assertThat(result.getRspCode()).isEqualTo("00");
         assertThat(payment.getPaymentStatus()).isEqualTo(PaymentStatus.PARTIALLY_PAID);
         assertThat(sampleOrder.getOrderStatus()).isEqualTo(OrderStatus.AWAITING_PAYMENT); // Order stays in AWAITING_PAYMENT
+        assertThat(sampleReservation.getReservationStatus()).isEqualTo(ReservationStatus.CONFIRMED);
         verify(paymentRepository, times(1)).save(payment);
         verify(orderRepository, never()).save(sampleOrder);
+        verify(reservationRepository, times(1)).save(sampleReservation);
     }
 
     @Test

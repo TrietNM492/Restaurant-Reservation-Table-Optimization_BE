@@ -25,6 +25,9 @@ import com.restaurant.ireservation.dto.response.InvoiceResponseDTO;
 import com.restaurant.ireservation.repository.OrderItemRepository;
 import com.restaurant.ireservation.util.InvoicePdfGenerator;
 import com.restaurant.ireservation.util.constants.RestaurantInfoConstants;
+import com.restaurant.ireservation.domain.entity.Reservation;
+import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
+import com.restaurant.ireservation.repository.ReservationRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -41,6 +44,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -68,7 +72,9 @@ public class PaymentService {
     PaymentRepository paymentRepository;
     OrderRepository orderRepository;
     OrderItemRepository orderItemRepository;
+    ReservationRepository reservationRepository;
     VnPayConfig vnPayConfig;
+    MailService mailService;
 
     @Transactional
     public PaymentResponseDTO createPayment(CreatePaymentRequestDTO request, String username,
@@ -98,15 +104,21 @@ public class PaymentService {
             }
         }
 
-        // Validate order status: strictly allow only AWAITING_PAYMENT
-        if (order.getOrderStatus() != OrderStatus.AWAITING_PAYMENT) {
+        // Validate order status: allow PENDING or AWAITING_PAYMENT
+        if (order.getOrderStatus() != OrderStatus.AWAITING_PAYMENT && order.getOrderStatus() != OrderStatus.PENDING) {
             throw new RequestInvalidException(
-                    "Cannot create payment. Order must be in AWAITING_PAYMENT status (current status: " + order.getOrderStatus() + ")");
+                    "Cannot create payment. Order must be in PENDING or AWAITING_PAYMENT status (current status: " + order.getOrderStatus() + ")");
         }
 
         // Validate order total
         if (order.getTotalAmount() <= 0) {
             throw new RequestInvalidException("Order total amount must be greater than 0 to proceed with payment!");
+        }
+
+        // Transition PENDING orders to AWAITING_PAYMENT when initiating payment
+        if (order.getOrderStatus() == OrderStatus.PENDING) {
+            order.setOrderStatus(OrderStatus.AWAITING_PAYMENT);
+            orderRepository.save(order);
         }
 
         int discountRate = resolveDiscountRate(order);
@@ -125,11 +137,18 @@ public class PaymentService {
             throw new RequestInvalidException("This order has already been paid successfully in full!");
         }
 
+        // Determine whether this order has a reservation and whether it is before the reservation arrival time
+        boolean isBeforeReservationTime = false;
+        if (order.getReservation() != null && order.getReservation().getStartTime() != null) {
+            isBeforeReservationTime = Instant.now().isBefore(order.getReservation().getStartTime());
+        }
+
         // Rules for Partial Payment:
         // 1. Minimum VNPay transaction amount is 5,000 VND
-        // 2. Minimum partial payment amount is 10% of initial order target total
-        // 3. If 10% of order target total is < 5,000 VND, partial payment is NOT supported for this order
-        BigDecimal tenPercent = orderTargetTotal.multiply(BigDecimal.valueOf(0.10)).setScale(2, RoundingMode.HALF_UP);
+        // 2. Before reservation arrival time: Minimum cumulative deposit is 50% of order target total
+        // 3. If 50% of order target total is < 5,000 VND, partial payment is NOT supported for this order
+        // 4. At or after reservation arrival time (or walk-in dining): Must pay remaining balance in full
+        BigDecimal fiftyPercent = orderTargetTotal.multiply(BigDecimal.valueOf(0.50)).setScale(2, RoundingMode.HALF_UP);
         BigDecimal minVnpayAmount = BigDecimal.valueOf(5000).setScale(2, RoundingMode.HALF_UP);
 
         BigDecimal amountToPay;
@@ -150,19 +169,28 @@ public class PaymentService {
 
             // Customer wishes to pay partially (less than remaining)
             if (requestedAmount.compareTo(remainingAmount) < 0) {
-                if (tenPercent.compareTo(minVnpayAmount) < 0) {
-                    throw new RequestInvalidException(
-                            "Order 10% value (" + formatVnd(tenPercent) + " VND) is less than minimum 5,000 VND. Partial payment is not supported for this low-value order. Please pay the full remaining amount (" + formatVnd(remainingAmount) + " VND)!");
-                }
+                if (isBeforeReservationTime) {
+                    if (fiftyPercent.compareTo(minVnpayAmount) < 0) {
+                        throw new RequestInvalidException(
+                                "Order 50% value (" + formatVnd(fiftyPercent) + " VND) is less than minimum 5,000 VND. Partial payment is not supported for this low-value order. Please pay the full remaining amount (" + formatVnd(remainingAmount) + " VND)!");
+                    }
 
-                if (requestedAmount.compareTo(tenPercent) < 0) {
-                    throw new RequestInvalidException(
-                            "Partial payment amount must be at least 10% of total order value (" + formatVnd(tenPercent) + " VND)!");
-                }
+                    BigDecimal minRequiredDepositThisTime = fiftyPercent.subtract(alreadyPaid).setScale(2, RoundingMode.HALF_UP);
+                    if (minRequiredDepositThisTime.compareTo(BigDecimal.ZERO) > 0) {
+                        if (requestedAmount.compareTo(minRequiredDepositThisTime) < 0) {
+                            throw new RequestInvalidException(
+                                    "Partial payment amount must be at least 50% of total order value (" + formatVnd(minRequiredDepositThisTime) + " VND)!");
+                        }
+                    }
 
-                if (requestedAmount.compareTo(minVnpayAmount) < 0) {
+                    if (requestedAmount.compareTo(minVnpayAmount) < 0) {
+                        throw new RequestInvalidException(
+                                "Payment amount must be at least 5,000 VND (minimum transaction on VNPay)!");
+                    }
+                } else {
+                    // At or after reservation arrival time, or dining walk-in: full payment required
                     throw new RequestInvalidException(
-                            "Payment amount must be at least 5,000 VND (minimum transaction on VNPay)!");
+                            "Dining time has started or passed. Please pay the full remaining amount (" + formatVnd(remainingAmount) + " VND)!");
                 }
             }
 
@@ -362,25 +390,46 @@ public class PaymentService {
                         payment.setPaymentStatus(PaymentStatus.PAID);
                         paymentRepository.save(payment);
 
-                        if (lockedOrder.getOrderStatus() == OrderStatus.AWAITING_PAYMENT) {
+                        if (lockedOrder.getOrderStatus() == OrderStatus.AWAITING_PAYMENT
+                                || lockedOrder.getOrderStatus() == OrderStatus.PENDING) {
                             lockedOrder.setOrderStatus(OrderStatus.OK);
                             orderRepository.save(lockedOrder);
-                            log.info("VNPay IPN: Payment {} marked as PAID. Order {} fully paid (total: {}) and transitioned from AWAITING_PAYMENT to OK",
+                            log.info("VNPay IPN: Payment {} marked as PAID. Order {} fully paid (total: {}) and transitioned to OK",
                                     payment.getId(), lockedOrder.getId(), newTotalPaid);
                         } else {
-                            log.warn("VNPay IPN: Payment {} marked as PAID, but Order {} was not in AWAITING_PAYMENT (current status: {}). Order status was not changed.",
+                            log.warn("VNPay IPN: Payment {} marked as PAID, but Order {} was not in AWAITING_PAYMENT/PENDING (current status: {}). Order status was not changed.",
                                     payment.getId(), lockedOrder.getId(), lockedOrder.getOrderStatus());
                         }
                     } else {
                         // Partially paid
                         payment.setPaymentStatus(PaymentStatus.PARTIALLY_PAID);
                         paymentRepository.save(payment);
-                        log.info("VNPay IPN: Payment {} marked as PARTIALLY_PAID. Order {} paid {} of {}. Order remains AWAITING_PAYMENT.",
+
+                        if (lockedOrder.getOrderStatus() == OrderStatus.PENDING) {
+                            lockedOrder.setOrderStatus(OrderStatus.AWAITING_PAYMENT);
+                            orderRepository.save(lockedOrder);
+                        }
+
+                        log.info("VNPay IPN: Payment {} marked as PARTIALLY_PAID. Order {} paid {} of {}. Order is in AWAITING_PAYMENT.",
                                 payment.getId(), lockedOrder.getId(), newTotalPaid, orderTargetTotal);
                     }
+
+                    // Auto-confirm reservation when deposit or full payment succeeds
+                    if (lockedOrder.getReservation() != null && reservationRepository != null) {
+                        Reservation reservation = lockedOrder.getReservation();
+                        if (reservation.getReservationStatus() == ReservationStatus.PENDING) {
+                            reservation.setReservationStatus(ReservationStatus.CONFIRMED);
+                            reservationRepository.save(reservation);
+                            log.info("VNPay IPN: Auto-confirmed reservation {} for order {}", reservation.getId(), lockedOrder.getId());
+                        }
+                    }
+
+                    // Trigger invoice email asynchronously with PDF attachment and download button
+                    sendInvoiceEmailForPayment(payment.getId(), null);
                 } else {
                     payment.setPaymentStatus(PaymentStatus.PAID);
                     paymentRepository.save(payment);
+                    sendInvoiceEmailForPayment(payment.getId(), null);
                 }
             } else if ("24".equals(responseCode)) {
                 // Customer cancelled on VNPay
@@ -534,6 +583,33 @@ public class PaymentService {
             }
         }
 
+        return buildInvoiceResponse(payment, order);
+    }
+
+    @Transactional(readOnly = true)
+    public InvoiceResponseDTO getInvoiceDataPublic(Long paymentId) {
+        if (paymentId == null) {
+            throw new RequestInvalidException("Payment ID must not be null");
+        }
+
+        Payment payment = paymentRepository.findWithOrderById(paymentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment not found with id: " + paymentId));
+
+        PaymentStatus status = payment.getPaymentStatus();
+        if (status != PaymentStatus.PAID && status != PaymentStatus.PARTIALLY_PAID) {
+            throw new RequestInvalidException(
+                    "Cannot generate invoice for payment with status " + status + ". Only PAID or PARTIALLY_PAID payments can have invoices.");
+        }
+
+        Order order = payment.getOrder();
+        if (order == null) {
+            throw new ResourceNotFoundException("Associated order not found for payment id: " + paymentId);
+        }
+
+        return buildInvoiceResponse(payment, order);
+    }
+
+    private InvoiceResponseDTO buildInvoiceResponse(Payment payment, Order order) {
         String customerName = "Walk-in Guest";
         String customerPhone = "";
         String customerEmail = "";
@@ -617,6 +693,43 @@ public class PaymentService {
     public byte[] generateInvoicePdf(Long paymentId, String username, Collection<? extends GrantedAuthority> authorities) {
         InvoiceResponseDTO invoice = getInvoiceData(paymentId, username, authorities);
         return InvoicePdfGenerator.generatePdf(invoice);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] generateInvoicePdfPublic(Long paymentId) {
+        InvoiceResponseDTO invoice = getInvoiceDataPublic(paymentId);
+        return InvoicePdfGenerator.generatePdf(invoice);
+    }
+
+    public void sendInvoiceEmailForPayment(Long paymentId, String customRecipientEmail) {
+        try {
+            InvoiceResponseDTO invoice = getInvoiceDataPublic(paymentId);
+            String backendBaseUrl = resolveBackendBaseUrl();
+            String downloadUrl = backendBaseUrl + "/api/v1/payment/" + paymentId + "/invoice/download";
+            mailService.sendInvoiceEmail(invoice, downloadUrl, customRecipientEmail);
+            log.info("Triggered invoice email for paymentId: {}, recipient: {}", paymentId,
+                    customRecipientEmail != null ? customRecipientEmail : invoice.getCustomerEmail());
+        } catch (Exception e) {
+            log.error("Failed to trigger invoice email for paymentId {}: {}", paymentId, e.getMessage(), e);
+        }
+    }
+
+    public void sendInvoiceEmailManually(Long paymentId, String username, Collection<? extends GrantedAuthority> authorities, String customRecipientEmail) {
+        InvoiceResponseDTO invoice = getInvoiceData(paymentId, username, authorities);
+        String backendBaseUrl = resolveBackendBaseUrl();
+        String downloadUrl = backendBaseUrl + "/api/v1/payment/" + paymentId + "/invoice/download";
+        mailService.sendInvoiceEmail(invoice, downloadUrl, customRecipientEmail);
+    }
+
+    private String resolveBackendBaseUrl() {
+        String returnUrl = vnPayConfig.getReturnUrl();
+        if (returnUrl != null && !returnUrl.isBlank()) {
+            int idx = returnUrl.indexOf("/api/v1/payment");
+            if (idx > 0) {
+                return returnUrl.substring(0, idx);
+            }
+        }
+        return "http://localhost:8080";
     }
 
     private int resolveDiscountRate(Order order) {
