@@ -38,6 +38,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -514,6 +515,36 @@ class PaymentControllerTest {
         mockMvc.perform(get("/api/v1/payment/9999/invoice"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.statusCode").value(404));
+
+        SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/payment/{paymentId}/invoice/download returns 200 with PDF bytes without authentication")
+    void testDownloadInvoicePdfPublic_Success() throws Exception {
+        byte[] fakePdf = "%PDF-1.4 dummy invoice content".getBytes();
+        when(paymentService.generateInvoicePdfPublic(1L)).thenReturn(fakePdf);
+
+        mockMvc.perform(get("/api/v1/payment/1/invoice/download"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "application/pdf"))
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"invoice-1.pdf\""))
+                .andExpect(content().bytes(fakePdf));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/payment/{paymentId}/send-invoice returns 200 when authenticated")
+    void testSendInvoiceEmailManually_Success() throws Exception {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "customer1", "pass", List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")));
+        SecurityContextHolder.getContext().setAuthentication(auth);
+
+        mockMvc.perform(post("/api/v1/payment/1/send-invoice")
+                        .param("toEmail", "test@gmail.com"))
+                .andExpect(status().isOk());
+
+        verify(paymentService, times(1))
+                .sendInvoiceEmailManually(eq(1L), eq("customer1"), any(), eq("test@gmail.com"));
 
         SecurityContextHolder.clearContext();
     }

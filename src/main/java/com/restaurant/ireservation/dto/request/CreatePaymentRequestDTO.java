@@ -1,5 +1,6 @@
 package com.restaurant.ireservation.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
@@ -17,5 +18,6 @@ public class CreatePaymentRequestDTO {
     @NotNull(message = "orderId is required")
     Long orderId;
 
+    @JsonAlias({"requestedAmount", "depositAmount"})
     BigDecimal amount;
 }

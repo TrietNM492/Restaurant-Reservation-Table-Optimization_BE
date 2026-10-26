@@ -5,11 +5,15 @@ import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.Collection;
+import java.util.List;
+import jakarta.persistence.LockModeType;
 
 /**
  * Module: Table Area Management [6] & Table Management [3]
@@ -54,4 +58,8 @@ public interface RestaurantTableRepository extends JpaRepository<RestaurantTable
     java.util.List<RestaurantTable> findAllByOrderByTableNumberAsc();
 
     java.util.List<RestaurantTable> findByAreaIdOrderByTableNumberAsc(Long areaId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT t FROM RestaurantTable t WHERE t.id IN :ids ORDER BY t.id")
+    List<RestaurantTable> findAllByIdForAllocation(@Param("ids") Collection<Long> ids);
 }

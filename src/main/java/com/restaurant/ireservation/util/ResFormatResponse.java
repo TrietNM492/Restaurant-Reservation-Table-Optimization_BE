@@ -59,7 +59,7 @@ public class ResFormatResponse implements ResponseBodyAdvice<Object> {
             res.setStatusCode(status);
             res.setData(body);
             ApiMessage message = returnType.getMethodAnnotation(ApiMessage.class);
-            res.setMessage(message);
+            res.setMessage(message != null ? message.value() : "CALL API SUCCESS");
             return res;
         }
 

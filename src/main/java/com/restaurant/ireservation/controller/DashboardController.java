@@ -1,5 +1,9 @@
 package com.restaurant.ireservation.controller;
 
+import com.restaurant.ireservation.dto.response.KitchenPerformanceAnalyticsDTO;
+import com.restaurant.ireservation.dto.response.VipRoomAnalyticsDTO;
+import com.restaurant.ireservation.service.KitchenPerformanceAnalyticsService;
+import com.restaurant.ireservation.service.VipRoomAnalyticsService;
 import com.restaurant.ireservation.dto.response.TableUtilizationDashboardDTO;
 import com.restaurant.ireservation.security.AuthoritiesConstants;
 import com.restaurant.ireservation.service.TableAnalyticsService;
@@ -18,8 +22,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 
 /**
- * Module 13: Table Utilization Analytics (FR-048)
- * Restricted to ROLE_ADMIN and ROLE_MANAGER.
  */
 @RestController
 @RequestMapping("/api/v1/dashboard")
@@ -27,7 +29,26 @@ import java.time.LocalDate;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class DashboardController {
 
+    VipRoomAnalyticsService vipRoomAnalyticsService;
+    KitchenPerformanceAnalyticsService kitchenPerformanceAnalyticsService;
+
+    // ─── VIP Room Analytics ───────────────────────────────────────────────────
     TableAnalyticsService tableAnalyticsService;
+
+    /**
+     * GET /api/v1/dashboard/vip-rooms
+     * Trả về analytics tổng hợp cho tất cả phòng VIP:
+     * - VIP Room Utilization
+     * - Revenue By VIP Room
+     * - Booking Frequency
+     */
+    @GetMapping("/vip-rooms")
+    @ApiMessage("Fetch VIP room analytics successfully")
+    public ResponseEntity<VipRoomAnalyticsDTO> getVipRoomAnalytics() {
+        return ResponseEntity.ok(vipRoomAnalyticsService.getVipRoomAnalytics());
+
+        }
+
 
     @GetMapping("/tables")
     @ApiMessage("Fetch table utilization dashboard successfully")
@@ -40,4 +61,20 @@ public class DashboardController {
     ) {
         return ResponseEntity.ok(tableAnalyticsService.getTableUtilizationDashboard(startDate, endDate));
     }
+
+    // ─── Kitchen Performance Analytics ────────────────────────────────────────
+
+    /**
+     * GET /api/v1/dashboard/kitchen
+     * Trả về analytics hiệu suất bếp:
+     * - Average Preparation Time
+     * - Kitchen Workload
+     * - Most Ordered Dishes
+     */
+    @GetMapping("/kitchen")
+    @ApiMessage("Fetch kitchen performance analytics successfully")
+    public ResponseEntity<KitchenPerformanceAnalyticsDTO> getKitchenPerformanceAnalytics() {
+        return ResponseEntity.ok(kitchenPerformanceAnalyticsService.getKitchenPerformanceAnalytics());
+    }
 }
+

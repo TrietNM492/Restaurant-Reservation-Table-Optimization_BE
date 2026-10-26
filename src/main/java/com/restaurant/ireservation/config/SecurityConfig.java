@@ -60,6 +60,9 @@ public class SecurityConfig {
                 "/api/v1/payment/vnpay-return",
                 "/api/v1/payments/vnpay-ipn",
                 "/api/v1/payments/vnpay-return",
+                "/api/v1/payment/*/invoice/download",
+                "/api/v1/payments/*/invoice/download",
+                "/api/v1/kitchen/**",
                 "/api/v1/kitchen/**",
                 "/api/v1/predictions/**"
         };

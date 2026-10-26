@@ -21,7 +21,15 @@ public interface KitchenOrderRepository extends JpaRepository<KitchenOrder, Long
 
     Optional<KitchenOrder> findByOrderId(Long orderId);
 
+    List<KitchenOrder> findAllByOrderIdOrderByCreatedDateAsc(Long orderId);
+
+    Optional<KitchenOrder> findFirstByOrderIdOrderByCreatedDateDesc(Long orderId);
+
     boolean existsByOrderId(Long orderId);
+
+    boolean existsByOrderIdAndStatusIn(Long orderId, Collection<OrderKitchenStatus> statuses);
+
+    List<KitchenOrder> findByOrderIdAndStatusIn(Long orderId, Collection<OrderKitchenStatus> statuses);
 
     long countByStatusIn(Collection<OrderKitchenStatus> statuses);
 
