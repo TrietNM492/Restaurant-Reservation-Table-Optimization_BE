@@ -47,7 +47,7 @@ public class DashboardController {
     public ResponseEntity<VipRoomAnalyticsDTO> getVipRoomAnalytics() {
         return ResponseEntity.ok(vipRoomAnalyticsService.getVipRoomAnalytics());
 
-        }
+    }
 
 
     @GetMapping("/tables")
