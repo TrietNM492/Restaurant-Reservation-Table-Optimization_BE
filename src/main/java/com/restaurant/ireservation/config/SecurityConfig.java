@@ -63,7 +63,6 @@ public class SecurityConfig {
                 "/api/v1/payment/*/invoice/download",
                 "/api/v1/payments/*/invoice/download",
                 "/api/v1/kitchen/**",
-                "/api/v1/kitchen/**",
                 "/api/v1/predictions/**"
         };
         List<String> publishEndpoints = List.of(Constants.VERSION_API + "/home",
