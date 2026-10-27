@@ -1,5 +1,6 @@
 package com.restaurant.ireservation.dto.response;
 
+import com.restaurant.ireservation.domain.enumerations.OrderKitchenStatus;
 import com.restaurant.ireservation.domain.enumerations.OrderStatus;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
@@ -24,6 +25,8 @@ public class OrderResponseDTO {
     String reservationNo;
     Long customerInformationId;
     OrderStatus orderStatus;
+    OrderKitchenStatus kitchenStatus;
+    Instant estimatedReadyTime;
     boolean isVipRoom;
     BigDecimal totalAmount;
     List<OrderItemResponseDTO> items;

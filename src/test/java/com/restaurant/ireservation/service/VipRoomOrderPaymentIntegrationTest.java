@@ -18,6 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 
@@ -69,6 +70,7 @@ class VipRoomOrderPaymentIntegrationTest {
                 menuItemRepository,
                 customerRepository,
                 userRepository,
+                kitchenOrderRepository,
                 stringRedisTemplate
         );
 
@@ -309,5 +311,32 @@ class VipRoomOrderPaymentIntegrationTest {
         verify(orderItemRepository).delete(orderItem);
         // Only VIP room fee remains
         assertThat(order.getTotalAmount()).isEqualTo(500000.0);
+    }
+
+    @Test
+    void testToOrderResponseDTO_IncludesKitchenStatusAndEstimatedReadyTime() {
+        Order order = Order.builder()
+                .orderNo("ORD-TRACK-001")
+                .orderStatus(OrderStatus.AWAITING_PAYMENT)
+                .isVipRoom(false)
+                .totalAmount(350000.0)
+                .build();
+        order.setId(105L);
+
+        Instant readyTime = Instant.now().plus(Duration.ofMinutes(18));
+        KitchenOrder ticket = KitchenOrder.builder()
+                .order(order)
+                .status(OrderKitchenStatus.COOKING)
+                .estimatedReadyTime(readyTime)
+                .build();
+
+        when(kitchenOrderRepository.findFirstByOrderIdOrderByCreatedDateDesc(105L))
+                .thenReturn(Optional.of(ticket));
+
+        OrderResponseDTO response = orderService.toOrderResponseDTO(order, Collections.emptyList(), null);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getKitchenStatus()).isEqualTo(OrderKitchenStatus.COOKING);
+        assertThat(response.getEstimatedReadyTime()).isEqualTo(readyTime);
     }
 }

@@ -52,6 +52,7 @@ class PredictionControllerTest {
 
     @Mock
     PredictionService predictionService;
+    @Mock
     PreparationTimeService preparationTimeService;
 
     @InjectMocks
@@ -188,12 +189,12 @@ class PredictionControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.orderId").value(12))
-                .andExpect(jsonPath("$.estimatedMinutes").value(25))
-                .andExpect(jsonPath("$.breakdown.baseCookingMinutes").value(20))
-                .andExpect(jsonPath("$.breakdown.queueWaitingMinutes").value(5))
-                .andExpect(jsonPath("$.breakdown.parallelKitchenSlots").value(3))
-                .andExpect(jsonPath("$.breakdown.longestDishName").value("Grilled Chicken"));
+                .andExpect(jsonPath("$.data.orderId").value(12))
+                .andExpect(jsonPath("$.data.estimatedMinutes").value(25))
+                .andExpect(jsonPath("$.data.breakdown.baseCookingMinutes").value(20))
+                .andExpect(jsonPath("$.data.breakdown.queueWaitingMinutes").value(5))
+                .andExpect(jsonPath("$.data.breakdown.parallelKitchenSlots").value(3))
+                .andExpect(jsonPath("$.data.breakdown.longestDishName").value("Grilled Chicken"));
     }
 
     @Test

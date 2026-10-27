@@ -37,6 +37,12 @@ class DashboardSecurityTest {
     private TableAnalyticsService tableAnalyticsService;
 
     @MockBean
+    private com.restaurant.ireservation.service.VipRoomAnalyticsService vipRoomAnalyticsService;
+
+    @MockBean
+    private com.restaurant.ireservation.service.KitchenPerformanceAnalyticsService kitchenPerformanceAnalyticsService;
+
+    @MockBean
     private SessionManager sessionManager;
 
     private static final String URL = "/api/v1/dashboard/tables";

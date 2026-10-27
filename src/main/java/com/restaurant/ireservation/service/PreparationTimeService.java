@@ -167,8 +167,43 @@ public class PreparationTimeService {
                 .build();
     }
 
-    private int resolveMenuItemPrepMinutes(MenuItem mi) {
-        if (mi.getEstimatedPrepTime() != null) {
+    /**
+     * Reusable helper to estimate prep time in minutes without persisting a KitchenOrder.
+     * Incorporates base cooking duration, 3 parallel stations queue wait, VIP jump, and historical bias calibration.
+     */
+    @Transactional(readOnly = true)
+    public int estimatePrepMinutes(List<OrderItem> items, boolean isVip) {
+        if (items == null || items.isEmpty()) {
+            return 15;
+        }
+
+        List<DishItemDetail> dishItems = new ArrayList<>();
+        for (OrderItem oi : items) {
+            MenuItem mi = oi.getMenuItem();
+            if (mi != null) {
+                int prepTime = resolveMenuItemPrepMinutes(mi);
+                int qty = Math.max(1, oi.getQuantity());
+                dishItems.add(new DishItemDetail(mi.getItemName(), qty, prepTime));
+            }
+        }
+
+        if (dishItems.isEmpty()) {
+            return 15;
+        }
+
+        DishCookingCalculation cookingCalc = calculateBaseCookingMinutes(dishItems);
+        int baseCookingMinutes = cookingCalc.baseCookingMinutes();
+
+        List<KitchenOrder> activeOrders = kitchenOrderRepository.findActiveKitchenQueue(ACTIVE_STATUSES, null, null);
+        int activeCount = (activeOrders != null) ? activeOrders.size() : 0;
+        int queueWaitingMinutes = calculateQueueWaitingMinutes(activeOrders, activeCount, isVip);
+        int historicalBiasMinutes = calculateHistoricalBiasMinutes();
+
+        return Math.max(1, baseCookingMinutes + queueWaitingMinutes + historicalBiasMinutes);
+    }
+
+    public int resolveMenuItemPrepMinutes(MenuItem mi) {
+        if (mi != null && mi.getEstimatedPrepTime() != null) {
             long minutes = mi.getEstimatedPrepTime().toMinutes();
             if (minutes > 0) {
                 return (int) minutes;

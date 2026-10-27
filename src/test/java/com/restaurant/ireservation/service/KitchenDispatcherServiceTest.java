@@ -36,6 +36,8 @@ class KitchenDispatcherServiceTest {
     private KitchenOrderRepository kitchenOrderRepository;
     @Mock
     private PaymentRepository paymentRepository;
+    @Mock
+    private PreparationTimeService preparationTimeService;
 
     private KitchenDispatcherService dispatcherService;
 
@@ -45,7 +47,8 @@ class KitchenDispatcherServiceTest {
                 orderRepository,
                 orderItemRepository,
                 kitchenOrderRepository,
-                paymentRepository
+                paymentRepository,
+                preparationTimeService
         );
     }
 
@@ -81,6 +84,7 @@ class KitchenDispatcherServiceTest {
         when(orderItemRepository.findAllByOrderId(101L)).thenReturn(List.of(item));
         when(kitchenOrderRepository.existsByOrderIdAndStatusIn(eq(101L), any())).thenReturn(false);
         when(paymentRepository.sumPaidAmountByOrderIdAndStatuses(eq(101L), any())).thenReturn(400000.0); // 50% paid
+        when(preparationTimeService.estimatePrepMinutes(anyList(), anyBoolean())).thenReturn(25);
 
         int dispatched = dispatcherService.dispatchEligibleOrdersToKitchen();
 
@@ -162,6 +166,7 @@ class KitchenDispatcherServiceTest {
         when(orderItemRepository.findAllByOrderId(102L)).thenReturn(List.of(item));
         when(kitchenOrderRepository.existsByOrderIdAndStatusIn(eq(102L), any())).thenReturn(false);
         when(paymentRepository.sumPaidAmountByOrderIdAndStatuses(eq(102L), any())).thenReturn(250000.0); // 50% deposit paid
+        when(preparationTimeService.estimatePrepMinutes(anyList(), anyBoolean())).thenReturn(25);
         when(kitchenOrderRepository.save(any(KitchenOrder.class))).thenAnswer(i -> {
             KitchenOrder ko = i.getArgument(0);
             ko.setId(999L);
@@ -182,7 +187,7 @@ class KitchenDispatcherServiceTest {
     }
 
     @Test
-    void testEstimatePrepTimeMinutes_CalculatesAccurately() {
+    void testDispatchOrder_DelegatesPrepTimeToPreparationTimeService() {
         MenuItem dish1 = MenuItem.builder()
                 .itemName("Grilled Salmon")
                 .estimatedPrepTime(Duration.ofMinutes(20))
@@ -195,12 +200,22 @@ class KitchenDispatcherServiceTest {
         OrderItem item1 = OrderItem.builder().menuItem(dish1).quantity(2).build();
         OrderItem item2 = OrderItem.builder().menuItem(dish2).quantity(1).build();
 
-        when(kitchenOrderRepository.countByStatusIn(any())).thenReturn(4L);
+        Order order = Order.builder()
+                .orderNo("ORD-TEST-DISPATCH")
+                .isVipRoom(true)
+                .build();
+        order.setId(201L);
 
-        int prepTimeNonVip = dispatcherService.estimatePrepTimeMinutes(List.of(item1, item2), false);
-        int prepTimeVip = dispatcherService.estimatePrepTimeMinutes(List.of(item1, item2), true);
+        when(preparationTimeService.estimatePrepMinutes(anyList(), eq(true))).thenReturn(22);
+        when(kitchenOrderRepository.save(any(KitchenOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        assertThat(prepTimeVip).isLessThan(prepTimeNonVip);
+        KitchenOrder dispatched = dispatcherService.dispatchOrder(order, List.of(item1, item2));
+
+        assertThat(dispatched).isNotNull();
+        assertThat(dispatched.getEstimatedPrepTimeMinutes()).isEqualTo(22);
+        assertThat(dispatched.getKitchenStation()).isEqualTo("VIP_CHEF");
+        assertThat(dispatched.getPriority()).isEqualTo(3);
+        verify(preparationTimeService).estimatePrepMinutes(List.of(item1, item2), true);
     }
 
     @Test
@@ -310,6 +325,8 @@ class KitchenDispatcherServiceTest {
                 .menuItem(wine)
                 .quantity(1)
                 .build();
+
+        when(preparationTimeService.resolveMenuItemPrepMinutes(wine)).thenReturn(5);
 
         dispatcherService.handleAdditionalItemAdded(order, extraItem);
 

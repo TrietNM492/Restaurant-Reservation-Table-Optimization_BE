@@ -35,15 +35,7 @@ public class KitchenDispatcherService {
     final OrderItemRepository orderItemRepository;
     final KitchenOrderRepository kitchenOrderRepository;
     final PaymentRepository paymentRepository;
-
-    static final int DEFAULT_PARALLEL_KITCHEN_SLOTS = 3;
-    static final List<OrderKitchenStatus> ACTIVE_KITCHEN_STATUSES = List.of(
-            OrderKitchenStatus.PENDING,
-            OrderKitchenStatus.COOKING,
-            OrderKitchenStatus.PREPARING,
-            OrderKitchenStatus.QUEUED,
-            OrderKitchenStatus.ON_HOLD
-    );
+    final PreparationTimeService preparationTimeService;
 
     /**
      * Scheduled job running every 2 minutes to scan eligible orders and dispatch to kitchen
@@ -121,7 +113,7 @@ public class KitchenDispatcherService {
                             }
                         }
 
-                        int prepMinutes = estimatePrepTimeMinutes(items, order.isVipRoom());
+                        int prepMinutes = preparationTimeService.estimatePrepMinutes(items, order.isVipRoom());
                         Instant dispatchTime = startTime.minus(Duration.ofMinutes(prepMinutes));
                         if (now.isBefore(dispatchTime)) {
                             log.debug("[KitchenDispatcher] Order #{} not yet ready for dispatch. Dispatch at: {}, Current: {}",
@@ -148,7 +140,7 @@ public class KitchenDispatcherService {
             items = orderItemRepository.findAllByOrderId(order.getId());
         }
 
-        int prepMinutes = estimatePrepTimeMinutes(items, order.isVipRoom());
+        int prepMinutes = preparationTimeService.estimatePrepMinutes(items, order.isVipRoom());
         Instant now = Instant.now();
         Instant targetReadyTime;
 
@@ -184,50 +176,6 @@ public class KitchenDispatcherService {
     }
 
     /**
-     * Dynamic Preparation Time Estimation algorithm:
-     * Base cooking time: max(item_prep_time) + (portions - 1) * 10% + 1.5 mins per additional distinct dish.
-     * Queue wait time: based on active orders in the kitchen and VIP priority.
-     */
-    public int estimatePrepTimeMinutes(List<OrderItem> items, boolean isVip) {
-        if (items == null || items.isEmpty()) {
-            return 15;
-        }
-
-        double maxDishTime = 0.0;
-        for (OrderItem item : items) {
-            int baseMinutes = 15;
-            if (item.getMenuItem() != null && item.getMenuItem().getEstimatedPrepTime() != null) {
-                long m = item.getMenuItem().getEstimatedPrepTime().toMinutes();
-                if (m > 0) {
-                    baseMinutes = (int) m;
-                }
-            }
-            int qty = Math.max(1, item.getQuantity());
-            double effectiveDishTime = baseMinutes + (qty - 1) * (baseMinutes * 0.10);
-            if (effectiveDishTime > maxDishTime) {
-                maxDishTime = effectiveDishTime;
-            }
-        }
-
-        int additionalDistinctDishes = Math.max(0, items.size() - 1);
-        double totalBaseCooking = maxDishTime + (additionalDistinctDishes * 1.5);
-        int baseCookingMinutes = Math.max(1, (int) Math.round(totalBaseCooking));
-
-        long activeKitchenOrders = kitchenOrderRepository.countByStatusIn(ACTIVE_KITCHEN_STATUSES);
-        int queueWaitMinutes = 0;
-        if (activeKitchenOrders >= DEFAULT_PARALLEL_KITCHEN_SLOTS) {
-            if (isVip) {
-                queueWaitMinutes = 2;
-            } else {
-                long queuedBeyond = activeKitchenOrders - DEFAULT_PARALLEL_KITCHEN_SLOTS;
-                queueWaitMinutes = (int) (5 + (queuedBeyond * 15) / DEFAULT_PARALLEL_KITCHEN_SLOTS);
-            }
-        }
-
-        return baseCookingMinutes + queueWaitMinutes;
-    }
-
-    /**
      * Handles customer adding dishes after order was already sent to the kitchen:
      * - If existing ticket is still cooking / not yet served -> append note and extend prep time.
      * - If existing ticket was already SERVED -> create new KitchenOrder #2 at the end of the queue.
@@ -254,11 +202,7 @@ public class KitchenDispatcherService {
                 + " x" + newItem.getQuantity();
 
         if (latestTicket.getStatus() == OrderKitchenStatus.SERVED || latestTicket.getStatus() == OrderKitchenStatus.SERVCED) {
-            int extraPrep = 15;
-            if (newItem.getMenuItem() != null && newItem.getMenuItem().getEstimatedPrepTime() != null) {
-                long m = newItem.getMenuItem().getEstimatedPrepTime().toMinutes();
-                if (m > 0) extraPrep = (int) m;
-            }
+            int extraPrep = preparationTimeService.resolveMenuItemPrepMinutes(newItem.getMenuItem());
 
             KitchenOrder round2 = KitchenOrder.builder()
                     .order(order)

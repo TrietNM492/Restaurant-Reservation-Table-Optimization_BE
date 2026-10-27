@@ -2,6 +2,7 @@ package com.restaurant.ireservation.service;
 
 import com.restaurant.ireservation.domain.entity.*;
 import com.restaurant.ireservation.domain.enumerations.ItemStatus;
+import com.restaurant.ireservation.domain.enumerations.OrderKitchenStatus;
 import com.restaurant.ireservation.domain.enumerations.OrderStatus;
 import com.restaurant.ireservation.dto.request.CreateOrderRequestDTO;
 import com.restaurant.ireservation.dto.response.OrderItemResponseDTO;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -42,6 +44,7 @@ public class OrderService {
     final MenuItemRepository menuItemRepository;
     final CustomerRepository customerRepository;
     final UserRepository userRepository;
+    final KitchenOrderRepository kitchenOrderRepository;
     final StringRedisTemplate stringRedisTemplate;
 
     @Transactional
@@ -259,6 +262,17 @@ public class OrderService {
                 .map(this::toOrderItemResponseDTO)
                 .toList() : Collections.emptyList();
 
+        OrderKitchenStatus kitchenStatus = null;
+        Instant estimatedReadyTime = null;
+        if (kitchenOrderRepository != null && order.getId() != null) {
+            Optional<KitchenOrder> latestTicketOpt = kitchenOrderRepository.findFirstByOrderIdOrderByCreatedDateDesc(order.getId());
+            if (latestTicketOpt.isPresent()) {
+                KitchenOrder ko = latestTicketOpt.get();
+                kitchenStatus = ko.getStatus();
+                estimatedReadyTime = ko.getEstimatedReadyTime();
+            }
+        }
+
         return OrderResponseDTO.builder()
                 .id(order.getId())
                 .orderNo(order.getOrderNo())
@@ -269,6 +283,8 @@ public class OrderService {
                 .customerInformationId(
                         order.getCustomerInformation() != null ? order.getCustomerInformation().getId() : null)
                 .orderStatus(order.getOrderStatus())
+                .kitchenStatus(kitchenStatus)
+                .estimatedReadyTime(estimatedReadyTime)
                 .isVipRoom(order.isVipRoom())
                 .totalAmount(BigDecimal.valueOf(order.getTotalAmount()))
                 .items(itemDTOs)
