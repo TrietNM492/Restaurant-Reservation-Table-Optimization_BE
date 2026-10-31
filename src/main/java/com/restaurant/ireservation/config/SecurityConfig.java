@@ -63,7 +63,9 @@ public class SecurityConfig {
                 "/api/v1/payment/*/invoice/download",
                 "/api/v1/payments/*/invoice/download",
                 "/api/v1/kitchen/**",
-                "/api/v1/predictions/**"
+                "/api/v1/predictions/**",
+                "/v3/api-docs",
+                "/swagger-ui/index.html"
         };
         List<String> publishEndpoints = List.of(Constants.VERSION_API + "/home",
                 Constants.VERSION_API + "/auth/register",
