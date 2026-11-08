@@ -34,6 +34,7 @@ import java.net.URISyntaxException;
 @RequestMapping("/api/v1/users")
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
+@PreAuthorize("hasAnyAuthority('ROLE_CUSTOMER', 'ROLE_ADMIN')")
 public class UserController {
 
     final UserService userService;
@@ -41,7 +42,7 @@ public class UserController {
     final CustomerService customerService;
 
     @PostMapping("/change-avatar")
-    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
+//    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
     public ResponseEntity<String> changeAvatar(@RequestPart("avatarUrl")MultipartFile file, @AuthenticationPrincipal Jwt jwt) throws URISyntaxException, IOException {
         String username = jwt.getSubject();
         User user = userRepository.findUserByUsername(username)
@@ -58,7 +59,7 @@ public class UserController {
     }
 
     @PutMapping("/me")
-    @PreAuthorize("hasRole('CUSTOMER')")
+//    @PreAuthorize("hasRole('CUSTOMER')")
 //    @Secured("ROLE_CUSTOMER")
     public ResponseEntity<CustomerResponse> updateProfile(@Valid @RequestBody ChangeCustomerProfileDTO profileDTO, @AuthenticationPrincipal Jwt jwt) {
         String username = jwt.getSubject();
@@ -78,7 +79,7 @@ public class UserController {
     }
 
     @GetMapping("/me")
-    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
+//    @PreAuthorize("hasAuthority('ROLE_CUSTOMER')")
     public ResponseEntity<CustomerResponse> getProfile(@AuthenticationPrincipal Jwt jwt) {
         org.springframework.security.core.Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         System.out.println(authentication);
@@ -97,7 +98,7 @@ public class UserController {
     }
 
     @PatchMapping("/activated")
-    @PreAuthorize("hasRole('ADMIN')")
+//    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<String> changeUserStatus(@RequestBody Long userId) {
         if (userId == null) {
             throw new RequestInvalidException("User ID missing request!");

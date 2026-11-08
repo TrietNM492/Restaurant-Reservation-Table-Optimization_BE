@@ -53,6 +53,7 @@ public class StaffInformationService {
     private List<StaffInformationDTO> toListStaffs(Page<StaffInformation> listStaff) {
         List<StaffInformationDTO> staffInformationDTOS = listStaff.stream().map(staff -> {
             StaffInformationDTO dto = new StaffInformationDTO();
+            dto.setId(staff.getId());
             dto.setSalary(staff.getSalary());
             dto.setTenure(staff.tenureStaff());
             dto.setDepartment(staff.getDepartment());
