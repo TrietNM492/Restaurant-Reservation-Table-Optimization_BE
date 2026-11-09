@@ -37,4 +37,10 @@ public class PreparationTimeBreakdownDTO {
 
     // Base minutes of the longest dish
     int longestDishMinutes;
+
+    // Time when the first dish is ready to be served (e.g. appetizer or quick item)
+    Integer firstDishReadyMinutes;
+
+    // Name of the first dish that will be served
+    String firstDishName;
 }

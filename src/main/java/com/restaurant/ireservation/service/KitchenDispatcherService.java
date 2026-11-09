@@ -56,7 +56,7 @@ public class KitchenDispatcherService {
     @Transactional
     public int dispatchEligibleOrdersToKitchen() {
         List<Order> candidates = orderRepository.findByOrderStatusIn(
-                List.of(OrderStatus.AWAITING_PAYMENT, OrderStatus.PENDING)
+                List.of(OrderStatus.AWAITING_PAYMENT, OrderStatus.PENDING, OrderStatus.OK)
         );
 
         int dispatchedCount = 0;
@@ -136,6 +136,11 @@ public class KitchenDispatcherService {
      */
     @Transactional
     public KitchenOrder dispatchOrder(Order order, List<OrderItem> items) {
+        return dispatchOrder(order, items, null);
+    }
+
+    @Transactional
+    public KitchenOrder dispatchOrder(Order order, List<OrderItem> items, String customerNote) {
         if (items == null || items.isEmpty()) {
             items = orderItemRepository.findAllByOrderId(order.getId());
         }
@@ -153,7 +158,10 @@ public class KitchenDispatcherService {
             targetReadyTime = now.plus(Duration.ofMinutes(prepMinutes));
         }
 
-        String note = buildOrderItemsSummary(items);
+        String summary = buildOrderItemsSummary(items);
+        String note = (customerNote != null && !customerNote.isBlank())
+                ? summary + " | " + customerNote.trim()
+                : summary;
         String station = order.isVipRoom() ? "VIP_CHEF" : "MAIN_KITCHEN";
         int priority = order.isVipRoom() ? 3 : 1;
 
@@ -169,19 +177,29 @@ public class KitchenDispatcherService {
                 .build();
 
         KitchenOrder saved = kitchenOrderRepository.save(kitchenOrder);
-        log.info("[KitchenDispatcher] Dispatched Order #{} to Kitchen as KitchenOrder #{}. Station: {}, Priority: {}, EstPrepTime: {}m, ReadyAt: {}",
-                order.getOrderNo(), saved.getId(), station, priority, prepMinutes, targetReadyTime);
+        log.info("[KitchenDispatcher] Dispatched Order #{} to Kitchen as KitchenOrder #{}. Station: {}, Priority: {}, EstPrepTime: {}m, ReadyAt: {}, Note: {}",
+                order.getOrderNo(), saved.getId(), station, priority, prepMinutes, targetReadyTime, note);
 
         return saved;
     }
 
     /**
      * Handles customer adding dishes after order was already sent to the kitchen:
-     * - If existing ticket is still cooking / not yet served -> append note and extend prep time.
+     * - If existing ticket is still cooking / not yet served -> append customer note (if any) and extend prep time.
      * - If existing ticket was already SERVED -> create new KitchenOrder #2 at the end of the queue.
      */
     @Transactional
     public void handleAdditionalItemAdded(Order order, OrderItem newItem) {
+        handleAdditionalItemAdded(order, newItem, newItem.getQuantity(), null);
+    }
+
+    @Transactional
+    public void handleAdditionalItemAdded(Order order, OrderItem newItem, String customerNote) {
+        handleAdditionalItemAdded(order, newItem, newItem.getQuantity(), customerNote);
+    }
+
+    @Transactional
+    public void handleAdditionalItemAdded(Order order, OrderItem newItem, int addedQuantity, String customerNote) {
         Reservation res = order.getReservation();
         Instant now = Instant.now();
 
@@ -199,10 +217,34 @@ public class KitchenDispatcherService {
 
         KitchenOrder latestTicket = latestTicketOpt.get();
         String itemDesc = (newItem.getMenuItem() != null ? newItem.getMenuItem().getItemName() : "Dish")
-                + " x" + newItem.getQuantity();
+                + " x" + addedQuantity;
 
-        if (latestTicket.getStatus() == OrderKitchenStatus.SERVED || latestTicket.getStatus() == OrderKitchenStatus.SERVCED) {
+        if (latestTicket.getStatus() == OrderKitchenStatus.SERVED
+                || latestTicket.getStatus() == OrderKitchenStatus.SERVCED
+                || latestTicket.getStatus() == OrderKitchenStatus.READY
+                || latestTicket.getStatus() == OrderKitchenStatus.DONE) {
             int extraPrep = preparationTimeService.resolveMenuItemPrepMinutes(newItem.getMenuItem());
+
+            long priorTicketCount = 0;
+            if (kitchenOrderRepository != null && order.getId() != null) {
+                var allTickets = kitchenOrderRepository.findAllByOrderIdOrderByCreatedDateAsc(order.getId());
+                if (allTickets != null) {
+                    priorTicketCount = allTickets.size();
+                }
+            }
+            long roundNum = Math.max(2, priorTicketCount + 1);
+
+            String round2Note = "[Gọi thêm - Đợt " + roundNum + "]: " + itemDesc;
+            if (customerNote != null && !customerNote.isBlank()) {
+                round2Note += " | " + customerNote.trim();
+            }
+
+            String resolvedStation = (preparationTimeService != null && newItem.getMenuItem() != null)
+                    ? preparationTimeService.resolveStation(newItem.getMenuItem())
+                    : null;
+            String roundStation = (resolvedStation != null && !resolvedStation.isBlank())
+                    ? resolvedStation
+                    : latestTicket.getKitchenStation();
 
             KitchenOrder round2 = KitchenOrder.builder()
                     .order(order)
@@ -211,25 +253,36 @@ public class KitchenDispatcherService {
                     .estimatedPrepTimeMinutes(extraPrep)
                     .estimatedReadyTime(Instant.now().plus(Duration.ofMinutes(extraPrep)))
                     .orderTime(LocalDate.now())
-                    .kitchenStation(latestTicket.getKitchenStation())
-                    .note("[Gọi thêm - Đợt 2]: " + itemDesc)
+                    .kitchenStation(roundStation)
+                    .note(round2Note)
                     .build();
 
             kitchenOrderRepository.save(round2);
-            log.info("[KitchenDispatcher] Created Round 2 KitchenOrder #{} for Order #{}: {}",
-                    round2.getId(), order.getOrderNo(), itemDesc);
+            log.info("[KitchenDispatcher] Created Round {} KitchenOrder #{} for Order #{}: {}",
+                    roundNum, round2.getId(), order.getOrderNo(), itemDesc);
         } else {
             String existingNote = latestTicket.getNote() != null ? latestTicket.getNote() : "";
+            String appendText = "[Gọi thêm]: " + itemDesc;
+            if (customerNote != null && !customerNote.isBlank()) {
+                appendText += " (" + customerNote.trim() + ")";
+            }
             String updatedNote = existingNote.isBlank()
-                    ? "[Gọi thêm]: " + itemDesc
-                    : existingNote + " | [Gọi thêm]: " + itemDesc;
+                    ? appendText
+                    : existingNote + " | " + appendText;
             latestTicket.setNote(updatedNote);
 
-            if (latestTicket.getEstimatedReadyTime() != null) {
-                latestTicket.setEstimatedReadyTime(latestTicket.getEstimatedReadyTime().plus(Duration.ofMinutes(8)));
+            int itemPrep = preparationTimeService.resolveMenuItemPrepMinutes(newItem.getMenuItem());
+            int currentPrep = latestTicket.getEstimatedPrepTimeMinutes() != null ? latestTicket.getEstimatedPrepTimeMinutes() : 0;
+            int updatedPrep = Math.max(currentPrep, itemPrep);
+            if (updatedPrep == currentPrep) {
+                updatedPrep = currentPrep + 2;
             }
-            if (latestTicket.getEstimatedPrepTimeMinutes() != null) {
-                latestTicket.setEstimatedPrepTimeMinutes(latestTicket.getEstimatedPrepTimeMinutes() + 8);
+            latestTicket.setEstimatedPrepTimeMinutes(updatedPrep);
+            if (latestTicket.getEstimatedReadyTime() != null) {
+                Instant targetTime = Instant.now().plus(Duration.ofMinutes(updatedPrep));
+                if (targetTime.isAfter(latestTicket.getEstimatedReadyTime())) {
+                    latestTicket.setEstimatedReadyTime(targetTime);
+                }
             }
             kitchenOrderRepository.save(latestTicket);
             log.info("[KitchenDispatcher] Appended extra dish to existing KitchenOrder #{}: {}",

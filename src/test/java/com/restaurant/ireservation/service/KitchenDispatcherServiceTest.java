@@ -339,4 +339,55 @@ class KitchenDispatcherServiceTest {
         assertThat(round2.getNote()).contains("[Gọi thêm - Đợt 2]: Chateau Wine x1");
         assertThat(round2.getKitchenStation()).isEqualTo("VIP_CHEF");
     }
+
+    @Test
+    void testHandleAdditionalItemAdded_CreatesRound2TicketWhenFirstRoundIsReadyToServe() {
+        Instant startTime = Instant.now().minus(Duration.ofMinutes(20));
+        Reservation reservation = Reservation.builder()
+                .startTime(startTime)
+                .build();
+
+        Order order = Order.builder()
+                .orderNo("ORD-005")
+                .reservation(reservation)
+                .orderStatus(OrderStatus.AWAITING_PAYMENT)
+                .isVipRoom(false)
+                .build();
+        order.setId(105L);
+
+        KitchenOrder ticket1 = KitchenOrder.builder()
+                .order(order)
+                .status(OrderKitchenStatus.READY)
+                .kitchenStation("STATION_HOT")
+                .build();
+        ticket1.setId(503L);
+
+        when(kitchenOrderRepository.findFirstByOrderIdOrderByCreatedDateDesc(105L))
+                .thenReturn(Optional.of(ticket1));
+
+        MenuItem iceCream = MenuItem.builder()
+                .itemName("Ice Cream")
+                .estimatedPrepTime(Duration.ofMinutes(4))
+                .build();
+        OrderItem extraItem = OrderItem.builder()
+                .order(order)
+                .menuItem(iceCream)
+                .quantity(2)
+                .build();
+
+        when(preparationTimeService.resolveMenuItemPrepMinutes(iceCream)).thenReturn(4);
+        when(preparationTimeService.resolveStation(iceCream)).thenReturn("STATION_BAR");
+
+        dispatcherService.handleAdditionalItemAdded(order, extraItem);
+
+        ArgumentCaptor<KitchenOrder> captor = ArgumentCaptor.forClass(KitchenOrder.class);
+        verify(kitchenOrderRepository).save(captor.capture());
+
+        KitchenOrder round2 = captor.getValue();
+        assertThat(round2.getStatus()).isEqualTo(OrderKitchenStatus.PENDING);
+        assertThat(round2.getPriority()).isEqualTo(1);
+        assertThat(round2.getNote()).contains("[Gọi thêm - Đợt 2]: Ice Cream x2");
+        assertThat(round2.getKitchenStation()).isEqualTo("STATION_BAR");
+        assertThat(round2.getEstimatedPrepTimeMinutes()).isEqualTo(4);
+    }
 }

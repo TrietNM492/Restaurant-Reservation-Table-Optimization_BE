@@ -19,13 +19,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -209,35 +213,7 @@ public class KitchenService {
         List<KitchenOrderItemDTO> itemDTOs = Collections.emptyList();
         if (orderId != null) {
             List<OrderItem> items = orderItemRepository.findAllByOrderId(orderId);
-            itemDTOs = items.stream().map(it -> {
-                MenuItem mi = it.getMenuItem();
-                Integer prepMinutes = null;
-                String catName = null;
-                String itemName = "Dish Item";
-                Long menuItemId = null;
-
-                if (mi != null) {
-                    menuItemId = mi.getId();
-                    itemName = mi.getItemName();
-                    if (mi.getEstimatedPrepTime() != null) {
-                        prepMinutes = (int) mi.getEstimatedPrepTime().toMinutes();
-                    }
-                    if (mi.getCategory() != null) {
-                        catName = mi.getCategory().getName();
-                    }
-                }
-
-                return KitchenOrderItemDTO.builder()
-                        .orderItemId(it.getId())
-                        .menuItemId(menuItemId)
-                        .itemName(itemName)
-                        .quantity(it.getQuantity())
-                        .estimatedPrepTimeMinutes(prepMinutes)
-                        .categoryName(catName)
-                        .unitPrice(it.getUnitPrice())
-                        .subtotal(it.getSubtotal())
-                        .build();
-            }).collect(Collectors.toList());
+            itemDTOs = resolveTicketItems(ko, items);
         }
 
         Instant created = ko.getCreatedDate() != null ? ko.getCreatedDate() : Instant.now();
@@ -271,7 +247,7 @@ public class KitchenService {
                 .actualReadyTime(ko.getActualReadyTime())
                 .actualServedTime(ko.getActualServedTime())
                 .kitchenStation(ko.getKitchenStation())
-                .note(ko.getNote())
+                .note(extractCustomerDisplayNote(ko.getNote()))
                 .items(itemDTOs)
                 .build();
     }
@@ -299,5 +275,175 @@ public class KitchenService {
             }
             return "Table Reservation";
         }
+    }
+
+    private List<KitchenOrderItemDTO> resolveTicketItems(KitchenOrder ko, List<OrderItem> allItems) {
+        if (allItems == null || allItems.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String note = ko.getNote();
+        if (note == null || note.isBlank()) {
+            return allItems.stream()
+                    .map(it -> buildItemDTO(it, it.getQuantity()))
+                    .collect(Collectors.toList());
+        }
+
+        List<KitchenOrderItemDTO> matchedDTOs = new ArrayList<>();
+        List<OrderItem> sortedItems = allItems.stream()
+                .filter(it -> it.getMenuItem() != null && it.getMenuItem().getItemName() != null)
+                .sorted((a, b) -> Integer.compare(
+                        b.getMenuItem().getItemName().length(),
+                        a.getMenuItem().getItemName().length()))
+                .toList();
+
+        for (OrderItem it : sortedItems) {
+            String name = it.getMenuItem().getItemName();
+            int qty = extractItemQuantityFromNote(note, name);
+            if (qty > 0) {
+                matchedDTOs.add(buildItemDTO(it, qty));
+            }
+        }
+
+        // If no items were identified from note, fall back to displaying all order items
+        if (matchedDTOs.isEmpty()) {
+            return allItems.stream()
+                    .map(it -> buildItemDTO(it, it.getQuantity()))
+                    .collect(Collectors.toList());
+        }
+
+        return matchedDTOs;
+    }
+
+    private int extractItemQuantityFromNote(String note, String itemName) {
+        if (note == null || itemName == null || itemName.isBlank()) {
+            return 0;
+        }
+
+        int totalQty = 0;
+        String quotedName = Pattern.quote(itemName.trim());
+
+        // Pattern 1: "ItemName x1" or "ItemName x 1" or "ItemName (x1)"
+        Pattern p1 = Pattern.compile(quotedName + "\\s*\\(?x\\s*(\\d+)\\)?", Pattern.CASE_INSENSITIVE);
+        Matcher m1 = p1.matcher(note);
+        while (m1.find()) {
+            try {
+                totalQty += Integer.parseInt(m1.group(1));
+            } catch (NumberFormatException ignored) {}
+        }
+
+        // Pattern 2: "1x ItemName" or "1 x ItemName"
+        Pattern p2 = Pattern.compile("(\\d+)\\s*x\\s*" + quotedName, Pattern.CASE_INSENSITIVE);
+        Matcher m2 = p2.matcher(note);
+        while (m2.find()) {
+            try {
+                totalQty += Integer.parseInt(m2.group(1));
+            } catch (NumberFormatException ignored) {}
+        }
+
+        // Pattern 3: If mentioned without explicit quantity, but contains the name (e.g. "[Gọi thêm]: Beef Steak")
+        if (totalQty == 0 && Pattern.compile("(?i)\\b" + quotedName + "\\b").matcher(note).find()) {
+            totalQty = 1;
+        }
+
+        return totalQty;
+    }
+
+    private KitchenOrderItemDTO buildItemDTO(OrderItem it, int effectiveQuantity) {
+        MenuItem mi = it.getMenuItem();
+        Integer prepMinutes = null;
+        String catName = null;
+        String itemName = "Dish Item";
+        Long menuItemId = null;
+
+        if (mi != null) {
+            menuItemId = mi.getId();
+            itemName = mi.getItemName();
+            if (mi.getEstimatedPrepTime() != null) {
+                prepMinutes = (int) mi.getEstimatedPrepTime().toMinutes();
+            }
+            if (mi.getCategory() != null) {
+                catName = mi.getCategory().getName();
+            }
+        }
+
+        BigDecimal unitPriceBd = parseBigDecimal(it.getUnitPrice());
+        if (unitPriceBd.compareTo(BigDecimal.ZERO) == 0 && mi != null) {
+            unitPriceBd = BigDecimal.valueOf(mi.getPrice());
+        }
+        double subtotal = unitPriceBd.multiply(BigDecimal.valueOf(effectiveQuantity)).doubleValue();
+
+        return KitchenOrderItemDTO.builder()
+                .orderItemId(it.getId())
+                .menuItemId(menuItemId)
+                .itemName(itemName)
+                .quantity(effectiveQuantity)
+                .estimatedPrepTimeMinutes(prepMinutes)
+                .categoryName(catName)
+                .unitPrice(unitPriceBd.toPlainString())
+                .subtotal(subtotal)
+                .build();
+    }
+
+    private BigDecimal parseBigDecimal(String str) {
+        if (str == null || str.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        try {
+            return new BigDecimal(str.trim());
+        } catch (NumberFormatException e) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private String extractCustomerDisplayNote(String note) {
+        if (note == null || note.isBlank()) {
+            return null;
+        }
+
+        // If the note has " | ", separate the system summary from actual customer notes
+        if (note.contains(" | ")) {
+            String[] parts = note.split("\\s*\\|\\s*");
+            List<String> realNotes = new ArrayList<>();
+            for (String part : parts) {
+                String trimmed = part.trim();
+                String extracted = extractRealNoteFromPart(trimmed);
+                if (extracted != null && !extracted.isBlank()) {
+                    realNotes.add(extracted);
+                }
+            }
+            if (!realNotes.isEmpty()) {
+                return String.join(" | ", realNotes);
+            }
+            return null;
+        }
+
+        return extractRealNoteFromPart(note.trim());
+    }
+
+    private String extractRealNoteFromPart(String part) {
+        if (part == null || part.isBlank()) {
+            return null;
+        }
+        String trimmed = part.trim();
+        // If it starts with [Gọi thêm - Đợt ...], it's a system tag
+        if (trimmed.startsWith("[Gọi thêm") || trimmed.startsWith("[Gọi Thêm")) {
+            int openParen = trimmed.indexOf('(');
+            int closeParen = trimmed.lastIndexOf(')');
+            if (openParen > -1 && closeParen > openParen) {
+                String inside = trimmed.substring(openParen + 1, closeParen).trim();
+                if (!inside.isEmpty()) {
+                    return inside;
+                }
+            }
+            return null; // Pure system summary
+        }
+
+        // If it's a summary of dishes like "3x Grilled Chicken, 1x Beef Steak"
+        if (trimmed.matches("^(?:\\d+\\s*x\\s*[^,]+(?:,\\s*)?)+$")) {
+            return null;
+        }
+
+        return trimmed;
     }
 }

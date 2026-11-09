@@ -3,6 +3,7 @@ package com.restaurant.ireservation.dto.request;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
@@ -23,6 +24,9 @@ public class CreateOrderRequestDTO {
     Long customerInformationId;
 
     Boolean isVipRoom;
+
+    @Size(max = 150, message = "Customer note must not exceed 150 characters")
+    String customerNote;
 
     @Valid
     List<InitialOrderItemDTO> items;

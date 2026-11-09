@@ -1,7 +1,12 @@
 package com.restaurant.ireservation.service;
 
+import com.restaurant.ireservation.domain.entity.KitchenOrder;
+import com.restaurant.ireservation.domain.entity.Order;
 import com.restaurant.ireservation.domain.entity.RestaurantTable;
 import com.restaurant.ireservation.domain.entity.TableArea;
+import com.restaurant.ireservation.domain.enumerations.OrderKitchenStatus;
+import com.restaurant.ireservation.domain.enumerations.OrderStatus;
+import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.ChangeTableStatusRequest;
 import com.restaurant.ireservation.dto.request.TableRequest;
@@ -11,6 +16,9 @@ import com.restaurant.ireservation.dto.response.TableResponse;
 import com.restaurant.ireservation.dto.response.TableStatusSummaryResponse;
 import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
+import com.restaurant.ireservation.repository.KitchenOrderRepository;
+import com.restaurant.ireservation.repository.OrderRepository;
+import com.restaurant.ireservation.repository.ReservationRepository;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
 import com.restaurant.ireservation.repository.RestaurantTableRepository;
 import com.restaurant.ireservation.repository.TableAreaRepository;
@@ -18,11 +26,13 @@ import com.restaurant.ireservation.util.ResultPaginationDTO;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,12 +43,16 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
+@Slf4j
 public class TableService {
 
     RestaurantTableRepository restaurantTableRepository;
     TableAreaRepository tableAreaRepository;
     ReservationTableRepository reservationTableRepository;
     TableAreaService tableAreaService;
+    OrderRepository orderRepository;
+    KitchenOrderRepository kitchenOrderRepository;
+    ReservationRepository reservationRepository;
 
     @Transactional(readOnly = true)
     public ResultPaginationDTO fetchTables(String q, Long areaId, TableStatus statusCode, Pageable pageable) {
@@ -133,6 +147,12 @@ public class TableService {
 
         existing.setStatusCode(request.getStatusCode());
         RestaurantTable updated = restaurantTableRepository.save(existing);
+
+        // When table transitions to AVAILABLE or CLEANING, complete active orders on that table
+        if (request.getStatusCode() == TableStatus.AVAILABLE || request.getStatusCode() == TableStatus.CLEANING) {
+            completeActiveOrdersForTable(existing);
+        }
+
         return toTableResponse(updated);
     }
 
@@ -257,5 +277,42 @@ public class TableService {
                 .lastModifiedBy(table.getLastModifiedBy())
                 .lastModifiedDate(table.getLastModifiedDate())
                 .build();
+    }
+
+    private void completeActiveOrdersForTable(RestaurantTable table) {
+        if (orderRepository == null || table == null || table.getId() == null) {
+            return;
+        }
+
+        List<OrderStatus> closedStatuses = List.of(OrderStatus.COMPLETED);
+        List<Order> activeOrders = orderRepository.findActiveOrdersByTableId(table.getId(), closedStatuses);
+
+        for (Order order : activeOrders) {
+            order.setOrderStatus(OrderStatus.COMPLETED);
+            orderRepository.save(order);
+            log.info("[TableService] Table #{} status changed to {}. Closed Order #{} -> COMPLETED.",
+                    table.getTableNumber(), table.getStatusCode(), order.getOrderNo());
+
+            if (order.getReservation() != null && order.getReservation().getReservationStatus() != ReservationStatus.CANCELLED) {
+                order.getReservation().setReservationStatus(ReservationStatus.COMPLETED);
+                if (reservationRepository != null) {
+                    reservationRepository.save(order.getReservation());
+                }
+            }
+
+            if (kitchenOrderRepository != null) {
+                List<OrderKitchenStatus> activeKitchenStatuses = List.of(
+                        OrderKitchenStatus.PENDING, OrderKitchenStatus.QUEUED,
+                        OrderKitchenStatus.COOKING, OrderKitchenStatus.PREPARING,
+                        OrderKitchenStatus.READY, OrderKitchenStatus.ON_HOLD
+                );
+                List<KitchenOrder> activeTickets = kitchenOrderRepository.findByOrderIdAndStatusIn(order.getId(), activeKitchenStatuses);
+                for (KitchenOrder ticket : activeTickets) {
+                    ticket.setStatus(OrderKitchenStatus.SERVED);
+                    ticket.setActualServedTime(Instant.now());
+                    kitchenOrderRepository.save(ticket);
+                }
+            }
+        }
     }
 }

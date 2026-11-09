@@ -47,9 +47,15 @@ public class OrderItemService {
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + request.getOrderId()));
 
         // 2. Only allow adding items if order is not completed
-        if (order.getOrderStatus() == OrderStatus.COMPLETED || order.getOrderStatus() == OrderStatus.OK) {
+        if (order.getOrderStatus() == OrderStatus.COMPLETED) {
             throw new RequestInvalidException(
                     "Cannot add item to an order that is already in " + order.getOrderStatus() + " status!");
+        }
+
+        // If order was already paid (OK), adding additional dishes transitions status back to PENDING
+        // so the kitchen prepares extra items and customer can pay the remaining balance.
+        if (order.getOrderStatus() == OrderStatus.OK) {
+            order.setOrderStatus(OrderStatus.PENDING);
         }
 
         // 3. Check menu item exists and is available
@@ -101,7 +107,7 @@ public class OrderItemService {
 
         // 6. Notify kitchen dispatcher if order was already sent to the kitchen
         if (kitchenDispatcherService != null) {
-            kitchenDispatcherService.handleAdditionalItemAdded(order, savedItem);
+            kitchenDispatcherService.handleAdditionalItemAdded(order, savedItem, request.getQuantity(), request.getCustomerNote());
         }
 
         return toResponseDTO(savedItem);

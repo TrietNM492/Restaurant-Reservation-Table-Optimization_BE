@@ -66,7 +66,8 @@ public interface KitchenOrderRepository extends JpaRepository<KitchenOrder, Long
      */
     @Query("SELECT ko FROM KitchenOrder ko " +
            "WHERE ko.actualStartTime IS NOT NULL AND ko.actualReadyTime IS NOT NULL " +
-           "AND ko.status IN :completedStatuses")
+           "AND ko.status IN :completedStatuses " +
+           "ORDER BY ko.actualReadyTime DESC")
     List<KitchenOrder> findCompletedWithTimestamps(
             @Param("completedStatuses") Collection<OrderKitchenStatus> completedStatuses
     );

@@ -22,4 +22,7 @@ public class VnPayReturnResponseDTO {
     String amount;
     String payDate;
     String orderInfo;
+    String paymentType;
+    boolean isFullyPaid;
+    String orderNo;
 }
