@@ -895,13 +895,19 @@ class PaymentServiceTest {
         String data = "vnp_Amount=15000000&vnp_BankCode=NCB&vnp_PayDate=20261016120000&vnp_ResponseCode=00&vnp_TransactionNo=14000123&vnp_TransactionStatus=00&vnp_TxnRef=500T1729000000";
         params.put("vnp_SecureHash", VnPayUtil.hmacSHA512(secretKey, data));
 
+        Payment mockPayment = Payment.builder().paymentStatus(PaymentStatus.PAID).build();
+        when(paymentRepository.findById(500L)).thenReturn(Optional.of(mockPayment));
+
         VnPayReturnResponseDTO result = paymentService.processReturn(params);
 
         assertThat(result.isSuccess()).isTrue();
+        assertThat(result.isSignatureValid()).isTrue();
+        assertThat(result.getPaymentStatus()).isEqualTo("PAID");
         assertThat(result.getPaymentId()).isEqualTo(500L);
         assertThat(result.getAmount()).isEqualTo("150000");
         assertThat(result.getResponseCode()).isEqualTo("00");
-        verifyNoInteractions(paymentRepository); // Strictly NO DB modification
+        verify(paymentRepository, never()).save(any()); // Strictly NO DB modification
+        verify(paymentRepository, never()).delete(any());
     }
 
     @Test

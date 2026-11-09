@@ -28,20 +28,19 @@ public class OrderController {
     @ApiMessage("Create order successfully")
     public OrderResponseDTO createOrder(
             @Valid @RequestBody CreateOrderRequestDTO request,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @AuthenticationPrincipal Jwt jwt) {
         String username = (jwt != null) ? jwt.getSubject() : "anonymous";
         return orderService.createOrder(request, username);
     }
 
     @GetMapping("/status")
-    @PreAuthorize("hasAuthority('ROLE_CUSTOMER') or hasRole('CUSTOMER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STAFF', 'MANAGER', 'CUSTOMER')")
     @ApiMessage("Get customer order details successfully")
     public OrderResponseDTO getCustomerOrderStatus(
             @RequestParam(name = "orderId", required = false) Long orderId,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @RequestParam(name = "reservationId", required = false) Long reservationId,
+            @AuthenticationPrincipal Jwt jwt) {
         String username = (jwt != null) ? jwt.getSubject() : null;
-        return orderService.getCustomerOrderStatus(orderId, username);
+        return orderService.getCustomerOrderStatus(orderId, reservationId, username);
     }
 }

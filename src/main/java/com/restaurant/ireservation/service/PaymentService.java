@@ -27,6 +27,7 @@ import com.restaurant.ireservation.util.InvoicePdfGenerator;
 import com.restaurant.ireservation.util.constants.RestaurantInfoConstants;
 import com.restaurant.ireservation.domain.entity.Reservation;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
+import com.restaurant.ireservation.domain.enumerations.ReservationType;
 import com.restaurant.ireservation.repository.ReservationRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -137,10 +138,12 @@ public class PaymentService {
             throw new RequestInvalidException("This order has already been paid successfully in full!");
         }
 
-        // Determine whether this order has a reservation and whether it is before the reservation arrival time
+        // Determine whether this order has an advance reservation and whether it is before the reservation arrival time
         boolean isBeforeReservationTime = false;
         if (order.getReservation() != null && order.getReservation().getStartTime() != null) {
-            isBeforeReservationTime = Instant.now().isBefore(order.getReservation().getStartTime());
+            isBeforeReservationTime = Instant.now().isBefore(order.getReservation().getStartTime())
+                    && order.getReservation().getReservationType() != ReservationType.WALK_IN
+                    && order.getReservation().getReservationStatus() != ReservationStatus.IN_PROGRESS;
         }
 
         // Rules for Partial Payment:
@@ -277,12 +280,27 @@ public class PaymentService {
             }
         }
 
-        log.info("Processed VNPay return: txnRef={}, paymentId={}, success={}, responseCode={}",
-                txnRef, paymentId, isSuccess, responseCode);
+        String orderInfo = params.get("vnp_OrderInfo");
+        String orderNo = null;
+        if (orderInfo != null && orderInfo.contains("Thanh toan don hang ")) {
+            orderNo = orderInfo.substring("Thanh toan don hang ".length()).trim();
+        }
+
+        String currentPaymentStatus = null;
+        if (isSignatureValid && paymentId != null) {
+            currentPaymentStatus = paymentRepository.findById(paymentId)
+                    .map(p -> p.getPaymentStatus() != null ? p.getPaymentStatus().name() : null)
+                    .orElse(null);
+        }
+
+        log.info("Processed VNPay return: txnRef={}, paymentId={}, success={}, signatureValid={}, responseCode={}, paymentStatus={}, orderNo={}",
+                txnRef, paymentId, isSuccess, isSignatureValid, responseCode, currentPaymentStatus, orderNo);
 
         // Strictly NO DB update on return URL
         return VnPayReturnResponseDTO.builder()
                 .success(isSuccess)
+                .signatureValid(isSignatureValid)
+                .paymentStatus(currentPaymentStatus)
                 .responseCode(responseCode)
                 .transactionStatus(transactionStatus)
                 .message(message)
@@ -292,7 +310,10 @@ public class PaymentService {
                 .bankCode(params.get("vnp_BankCode"))
                 .amount(displayAmount)
                 .payDate(params.get("vnp_PayDate"))
-                .orderInfo(params.get("vnp_OrderInfo"))
+                .orderInfo(orderInfo)
+                .orderNo(orderNo)
+                .paymentType("DINE_IN")
+                .isFullyPaid(isSuccess)
                 .build();
     }
 

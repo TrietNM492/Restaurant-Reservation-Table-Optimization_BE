@@ -53,6 +53,15 @@ class TableServiceTest {
     @Mock
     TableAreaService tableAreaService;
 
+    @Mock
+    com.restaurant.ireservation.repository.OrderRepository orderRepository;
+
+    @Mock
+    com.restaurant.ireservation.repository.KitchenOrderRepository kitchenOrderRepository;
+
+    @Mock
+    com.restaurant.ireservation.repository.ReservationRepository reservationRepository;
+
     @InjectMocks
     TableService tableService;
 
@@ -275,6 +284,33 @@ class TableServiceTest {
 
         assertThat(response).isNotNull();
         assertThat(response.getStatusCode()).isEqualTo(TableStatus.LOCKED);
+    }
+
+    @Test
+    @DisplayName("changeTableStatus: when table changed to AVAILABLE or CLEANING, completes active orders")
+    void changeTableStatus_toAvailable_completesActiveOrders() {
+        ChangeTableStatusRequest request = ChangeTableStatusRequest.builder()
+                .id(1L)
+                .statusCode(TableStatus.AVAILABLE)
+                .build();
+
+        sampleTable.setStatusCode(TableStatus.IN_USE);
+        when(restaurantTableRepository.findById(1L)).thenReturn(Optional.of(sampleTable));
+        when(restaurantTableRepository.save(any(RestaurantTable.class))).thenAnswer(i -> i.getArgument(0));
+
+        com.restaurant.ireservation.domain.entity.Order activeOrder = com.restaurant.ireservation.domain.entity.Order.builder()
+                .orderNo("ORD-08112026-001")
+                .orderStatus(com.restaurant.ireservation.domain.enumerations.OrderStatus.OK)
+                .build();
+        activeOrder.setId(101L);
+
+        when(orderRepository.findActiveOrdersByTableId(eq(1L), any())).thenReturn(List.of(activeOrder));
+
+        TableResponse response = tableService.changeTableStatus(request);
+
+        assertThat(response.getStatusCode()).isEqualTo(TableStatus.AVAILABLE);
+        assertThat(activeOrder.getOrderStatus()).isEqualTo(com.restaurant.ireservation.domain.enumerations.OrderStatus.COMPLETED);
+        verify(orderRepository).save(activeOrder);
     }
 
     @Test
