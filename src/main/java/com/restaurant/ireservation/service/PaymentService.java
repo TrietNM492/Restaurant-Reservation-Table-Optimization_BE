@@ -286,12 +286,21 @@ public class PaymentService {
             orderNo = orderInfo.substring("Thanh toan don hang ".length()).trim();
         }
 
-        log.info("Processed VNPay return: txnRef={}, paymentId={}, success={}, responseCode={}, orderNo={}",
-                txnRef, paymentId, isSuccess, responseCode, orderNo);
+        String currentPaymentStatus = null;
+        if (isSignatureValid && paymentId != null) {
+            currentPaymentStatus = paymentRepository.findById(paymentId)
+                    .map(p -> p.getPaymentStatus() != null ? p.getPaymentStatus().name() : null)
+                    .orElse(null);
+        }
+
+        log.info("Processed VNPay return: txnRef={}, paymentId={}, success={}, signatureValid={}, responseCode={}, paymentStatus={}, orderNo={}",
+                txnRef, paymentId, isSuccess, isSignatureValid, responseCode, currentPaymentStatus, orderNo);
 
         // Strictly NO DB update on return URL
         return VnPayReturnResponseDTO.builder()
                 .success(isSuccess)
+                .signatureValid(isSignatureValid)
+                .paymentStatus(currentPaymentStatus)
                 .responseCode(responseCode)
                 .transactionStatus(transactionStatus)
                 .message(message)

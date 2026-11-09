@@ -25,4 +25,6 @@ public class VnPayReturnResponseDTO {
     String paymentType;
     boolean isFullyPaid;
     String orderNo;
+    boolean signatureValid;
+    String paymentStatus;
 }
