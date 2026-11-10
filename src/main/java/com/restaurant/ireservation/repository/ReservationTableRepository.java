@@ -33,6 +33,9 @@ public interface ReservationTableRepository extends JpaRepository<ReservationTab
     @EntityGraph(attributePaths = {"table"})
     List<ReservationTable> findByReservationId(Long reservationId);
 
+    @EntityGraph(attributePaths = {"table"})
+    List<ReservationTable> findByReservationIdIn(Collection<Long> reservationIds);
+
     @Query("SELECT rt FROM ReservationTable rt " +
            "WHERE rt.table.id IN :tableIds " +
            "AND rt.reservation.id != :excludedReservationId " +

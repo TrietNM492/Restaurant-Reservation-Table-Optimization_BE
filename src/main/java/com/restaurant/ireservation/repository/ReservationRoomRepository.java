@@ -36,6 +36,9 @@ public interface ReservationRoomRepository extends JpaRepository<ReservationRoom
     @EntityGraph(attributePaths = {"room"})
     List<ReservationRoom> findByReservationId(Long reservationId);
 
+    @EntityGraph(attributePaths = {"room"})
+    List<ReservationRoom> findByReservationIdIn(Collection<Long> reservationIds);
+
     @Query("SELECT rr FROM ReservationRoom rr " +
            "WHERE rr.room.id IN :roomIds " +
            "AND rr.reservation.id != :excludedReservationId " +
