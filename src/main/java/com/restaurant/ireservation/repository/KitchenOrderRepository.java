@@ -21,7 +21,15 @@ public interface KitchenOrderRepository extends JpaRepository<KitchenOrder, Long
 
     Optional<KitchenOrder> findByOrderId(Long orderId);
 
+    List<KitchenOrder> findAllByOrderIdOrderByCreatedDateAsc(Long orderId);
+
+    Optional<KitchenOrder> findFirstByOrderIdOrderByCreatedDateDesc(Long orderId);
+
     boolean existsByOrderId(Long orderId);
+
+    boolean existsByOrderIdAndStatusIn(Long orderId, Collection<OrderKitchenStatus> statuses);
+
+    List<KitchenOrder> findByOrderIdAndStatusIn(Long orderId, Collection<OrderKitchenStatus> statuses);
 
     long countByStatusIn(Collection<OrderKitchenStatus> statuses);
 
@@ -58,7 +66,8 @@ public interface KitchenOrderRepository extends JpaRepository<KitchenOrder, Long
      */
     @Query("SELECT ko FROM KitchenOrder ko " +
            "WHERE ko.actualStartTime IS NOT NULL AND ko.actualReadyTime IS NOT NULL " +
-           "AND ko.status IN :completedStatuses")
+           "AND ko.status IN :completedStatuses " +
+           "ORDER BY ko.actualReadyTime DESC")
     List<KitchenOrder> findCompletedWithTimestamps(
             @Param("completedStatuses") Collection<OrderKitchenStatus> completedStatuses
     );

@@ -12,7 +12,7 @@ import java.time.LocalDate;
 @Builder
 @NoArgsConstructor@AllArgsConstructor
 public class StaffInformationDTO {
-
+    Long id;
     String employeeCode;
     Department department;
     LocalDate joinDate;

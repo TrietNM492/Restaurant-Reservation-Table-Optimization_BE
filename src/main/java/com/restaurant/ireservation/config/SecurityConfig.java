@@ -60,7 +60,12 @@ public class SecurityConfig {
                 "/api/v1/payment/vnpay-return",
                 "/api/v1/payments/vnpay-ipn",
                 "/api/v1/payments/vnpay-return",
-                "/api/v1/kitchen/**"
+                "/api/v1/payment/*/invoice/download",
+                "/api/v1/payments/*/invoice/download",
+                "/api/v1/kitchen/**",
+                "/api/v1/predictions/**",
+                "/v3/api-docs",
+                "/swagger-ui/index.html"
         };
         List<String> publishEndpoints = List.of(Constants.VERSION_API + "/home",
                 Constants.VERSION_API + "/auth/register",
@@ -71,6 +76,7 @@ public class SecurityConfig {
                 Constants.VERSION_API + "/account/reset-password/finish",
                 Constants.VERSION_API + "/files/**",
                 Constants.VERSION_API + "/menus/**",
+                Constants.VERSION_API + "/predictions/**",
                 Constants.VERSION_API + "/payment/webhook",
                 Constants.VERSION_API + "/payment/vnpay-return");
         httpSecurity

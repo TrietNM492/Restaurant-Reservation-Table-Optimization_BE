@@ -19,6 +19,11 @@ import lombok.experimental.FieldDefaults;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.restaurant.ireservation.domain.entity.ReservationRoom;
+import com.restaurant.ireservation.domain.enumerations.OrderKitchenStatus;
+import com.restaurant.ireservation.repository.KitchenOrderRepository;
+import com.restaurant.ireservation.repository.ReservationRoomRepository;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -31,6 +36,9 @@ public class OrderItemService {
     final OrderRepository orderRepository;
     final OrderItemRepository orderItemRepository;
     final MenuItemRepository menuItemRepository;
+    final ReservationRoomRepository reservationRoomRepository;
+    final KitchenOrderRepository kitchenOrderRepository;
+    final KitchenDispatcherService kitchenDispatcherService;
 
     @Transactional
     public OrderItemResponseDTO addOrderItem(AddOrderItemRequestDTO request) {
@@ -39,9 +47,15 @@ public class OrderItemService {
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + request.getOrderId()));
 
         // 2. Only allow adding items if order is not completed
-        if (order.getOrderStatus() == OrderStatus.COMPLETED || order.getOrderStatus() == OrderStatus.OK) {
+        if (order.getOrderStatus() == OrderStatus.COMPLETED) {
             throw new RequestInvalidException(
                     "Cannot add item to an order that is already in " + order.getOrderStatus() + " status!");
+        }
+
+        // If order was already paid (OK), adding additional dishes transitions status back to PENDING
+        // so the kitchen prepares extra items and customer can pay the remaining balance.
+        if (order.getOrderStatus() == OrderStatus.OK) {
+            order.setOrderStatus(OrderStatus.PENDING);
         }
 
         // 3. Check menu item exists and is available
@@ -86,10 +100,15 @@ public class OrderItemService {
 
         OrderItem savedItem = orderItemRepository.save(targetItem);
 
-        // 5. Recalculate order total amount
-        BigDecimal newOrderTotal = recalculateOrderTotal(order.getId());
+        // 5. Recalculate order total amount (including VIP room price if applicable)
+        BigDecimal newOrderTotal = recalculateOrderTotal(order);
         order.setTotalAmount(newOrderTotal.doubleValue());
         orderRepository.save(order);
+
+        // 6. Notify kitchen dispatcher if order was already sent to the kitchen
+        if (kitchenDispatcherService != null) {
+            kitchenDispatcherService.handleAdditionalItemAdded(order, savedItem, request.getQuantity(), request.getCustomerNote());
+        }
 
         return toResponseDTO(savedItem);
     }
@@ -102,10 +121,28 @@ public class OrderItemService {
 
         Order order = orderItem.getOrder();
 
-        // 2. Only allow editing when order is PENDING (kitchen has not started cooking)
-        if (order.getOrderStatus() != OrderStatus.PENDING) {
+        // 2. Allow editing when order is PENDING or AWAITING_PAYMENT (before kitchen cooking)
+        if (order.getOrderStatus() != OrderStatus.PENDING && order.getOrderStatus() != OrderStatus.AWAITING_PAYMENT) {
             throw new RequestInvalidException("Cannot update item. Order is currently in " + order.getOrderStatus()
-                    + " status (cooking or completed). Only PENDING orders can be modified.");
+                    + " status. Only orders prior to dining/cooking can be modified.");
+        }
+
+        // Check if kitchen has already started cooking or beyond
+        if (kitchenOrderRepository != null) {
+            boolean isCookingOrBeyond = kitchenOrderRepository.existsByOrderIdAndStatusIn(
+                    order.getId(),
+                    List.of(
+                            OrderKitchenStatus.COOKING,
+                            OrderKitchenStatus.DONE,
+                            OrderKitchenStatus.PREPARING,
+                            OrderKitchenStatus.READY,
+                            OrderKitchenStatus.SERVED,
+                            OrderKitchenStatus.SERVCED
+                    )
+            );
+            if (isCookingOrBeyond) {
+                throw new RequestInvalidException("Cannot update item. Kitchen is already cooking or has served dishes for this order.");
+            }
         }
 
         // 3. Nếu số lượng = 0 thì hủy/xóa món ăn khỏi đơn
@@ -113,7 +150,7 @@ public class OrderItemService {
             orderItemRepository.delete(orderItem);
             orderItemRepository.flush();
 
-            BigDecimal newOrderTotal = recalculateOrderTotal(order.getId());
+            BigDecimal newOrderTotal = recalculateOrderTotal(order);
             order.setTotalAmount(newOrderTotal.doubleValue());
             orderRepository.save(order);
 
@@ -135,7 +172,7 @@ public class OrderItemService {
         OrderItem savedItem = orderItemRepository.save(orderItem);
 
         // 4. Tự động tính lại tổng tiền của đơn sau khi sửa
-        BigDecimal newOrderTotal = recalculateOrderTotal(order.getId());
+        BigDecimal newOrderTotal = recalculateOrderTotal(order);
         order.setTotalAmount(newOrderTotal.doubleValue());
         orderRepository.save(order);
 
@@ -149,24 +186,52 @@ public class OrderItemService {
 
         Order order = orderItem.getOrder();
 
-        if (order.getOrderStatus() != OrderStatus.PENDING) {
+        if (order.getOrderStatus() != OrderStatus.PENDING && order.getOrderStatus() != OrderStatus.AWAITING_PAYMENT) {
             throw new RequestInvalidException("Cannot delete item. Order is currently in " + order.getOrderStatus()
-                    + " status (cooking or completed). Only PENDING orders can be modified.");
+                    + " status. Only orders prior to dining/cooking can be modified.");
+        }
+
+        if (kitchenOrderRepository != null) {
+            boolean isCookingOrBeyond = kitchenOrderRepository.existsByOrderIdAndStatusIn(
+                    order.getId(),
+                    List.of(
+                            OrderKitchenStatus.COOKING,
+                            OrderKitchenStatus.DONE,
+                            OrderKitchenStatus.PREPARING,
+                            OrderKitchenStatus.READY,
+                            OrderKitchenStatus.SERVED,
+                            OrderKitchenStatus.SERVCED
+                    )
+            );
+            if (isCookingOrBeyond) {
+                throw new RequestInvalidException("Cannot delete item. Kitchen is already cooking or has served dishes for this order.");
+            }
         }
 
         orderItemRepository.delete(orderItem);
         orderItemRepository.flush();
 
-        BigDecimal newOrderTotal = recalculateOrderTotal(order.getId());
+        BigDecimal newOrderTotal = recalculateOrderTotal(order);
         order.setTotalAmount(newOrderTotal.doubleValue());
         orderRepository.save(order);
     }
 
-    private BigDecimal recalculateOrderTotal(Long orderId) {
-        List<OrderItem> allItems = orderItemRepository.findAllByOrderId(orderId);
-        return allItems.stream()
+    private BigDecimal recalculateOrderTotal(Order order) {
+        List<OrderItem> allItems = orderItemRepository.findAllByOrderId(order.getId());
+        BigDecimal itemsTotal = allItems.stream()
                 .map(item -> BigDecimal.valueOf(item.getSubtotal()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal roomCharge = BigDecimal.ZERO;
+        if (order.getReservation() != null && reservationRoomRepository != null) {
+            List<ReservationRoom> resRooms = reservationRoomRepository.findByReservationId(order.getReservation().getId());
+            for (ReservationRoom rr : resRooms) {
+                if (rr.getRoom() != null && rr.getRoom().getPrice() > 0) {
+                    roomCharge = roomCharge.add(BigDecimal.valueOf(rr.getRoom().getPrice()));
+                }
+            }
+        }
+        return itemsTotal.add(roomCharge);
     }
 
     private OrderItemResponseDTO toResponseDTO(OrderItem item) {

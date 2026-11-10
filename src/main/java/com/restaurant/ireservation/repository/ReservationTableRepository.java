@@ -64,4 +64,40 @@ public interface ReservationTableRepository extends JpaRepository<ReservationTab
             @Param("windowStart") Instant windowStart,
             @Param("windowEnd") Instant windowEnd
     );
+
+    @Query("SELECT rt FROM ReservationTable rt JOIN FETCH rt.reservation r " +
+           "WHERE rt.table.id = :tableId " +
+           "AND rt.reservation.id != :excludedReservationId " +
+           "AND r.reservationStatus = :status")
+    List<ReservationTable> findByTableIdAndReservationStatusExcludingReservation(
+        @Param("tableId") Long tableId,
+        @Param("excludedReservationId") Long excludedReservationId,
+        @Param("status") ReservationStatus status
+    );
+
+    @Query("SELECT rt FROM ReservationTable rt JOIN FETCH rt.reservation r " +
+           "WHERE rt.table.id = :tableId " +
+           "AND rt.reservation.id != :excludedReservationId " +
+           "AND r.reservationStatus IN :statuses " +
+           "AND r.endTime <= :tArrival " +
+           "AND r.endTime > :tArrivalMinusBuffer")
+    List<ReservationTable> findPrecedingBookingsForTurnaround(
+        @Param("tableId") Long tableId,
+        @Param("excludedReservationId") Long excludedReservationId,
+        @Param("statuses") Collection<ReservationStatus> statuses,
+        @Param("tArrival") Instant tArrival,
+        @Param("tArrivalMinusBuffer") Instant tArrivalMinusBuffer
+    );
+
+    @Query("SELECT rt FROM ReservationTable rt " +
+            "JOIN FETCH rt.table t " +
+            "JOIN FETCH rt.reservation r " +
+            "LEFT JOIN FETCH t.area a " +
+            "WHERE r.startTime >= :startTime AND r.startTime <= :endTime " +
+            "AND r.reservationStatus NOT IN :excludedStatuses")
+    List<ReservationTable> findReservationsInDateRange(
+            @Param("startTime") Instant startTime,
+            @Param("endTime") Instant endTime,
+            @Param("excludedStatuses") Collection<ReservationStatus> excludedStatuses
+    );
 }

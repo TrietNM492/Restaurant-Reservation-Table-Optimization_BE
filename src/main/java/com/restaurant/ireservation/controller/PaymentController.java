@@ -129,4 +129,34 @@ public class PaymentController {
             return ResponseEntity.ok(invoice);
         }
     }
+
+    @GetMapping("/{paymentId}/invoice/download")
+    @ApiMessage("Download invoice PDF successfully")
+    public ResponseEntity<byte[]> downloadInvoicePdf(@PathVariable("paymentId") Long paymentId) {
+        byte[] pdfBytes = paymentService.generateInvoicePdfPublic(paymentId);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDisposition(ContentDisposition.attachment()
+                .filename("invoice-" + paymentId + ".pdf")
+                .build());
+        headers.setContentLength(pdfBytes.length);
+        return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
+    }
+
+    @PostMapping("/{paymentId}/send-invoice")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STAFF', 'MANAGER', 'CUSTOMER') or hasAnyAuthority('ROLE_ADMIN', 'ROLE_STAFF', 'ROLE_MANAGER', 'ROLE_CUSTOMER')")
+    @ApiMessage("Send invoice email successfully")
+    public ResponseEntity<Void> sendInvoiceEmail(
+            @PathVariable("paymentId") Long paymentId,
+            @RequestParam(name = "toEmail", required = false) String toEmail
+    ) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String username = (auth != null) ? auth.getName() : null;
+        Collection<? extends GrantedAuthority> authorities = (auth != null)
+                ? auth.getAuthorities()
+                : Collections.emptyList();
+
+        paymentService.sendInvoiceEmailManually(paymentId, username, authorities, toEmail);
+        return ResponseEntity.ok().build();
+    }
 }

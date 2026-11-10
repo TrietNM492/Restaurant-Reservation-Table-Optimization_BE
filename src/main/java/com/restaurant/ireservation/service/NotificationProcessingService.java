@@ -38,6 +38,7 @@ public class NotificationProcessingService {
         notification.setLastError(null);
     }
 
+    @Transactional
     public void markFail(Long notificationId, Exception e) {
         Notification notification = notificationRepository.findById(notificationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Resource Not Found!"));

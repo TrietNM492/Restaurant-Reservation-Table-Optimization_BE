@@ -76,6 +76,27 @@ public final class TableRecommendationEngine {
 
     // public API
 
+    /** Scores a selected allocation directly, without availability filtering or combination enumeration.
+     * The caller excludes the allocation's own booking from neighbouring bookings.
+     */
+    public static double scoreAllocatedCombination(Query query, List<TableCandidate> tables,
+                                                   Collection<Booking> bookings) {
+        if (tables.isEmpty() || query.guestCount() <= 0
+                || tables.stream().anyMatch(t -> t.capacity() <= 0)
+                || tables.stream().mapToLong(TableCandidate::capacity).sum() < query.guestCount()
+                || query.start() == null || query.end() == null || !query.end().isAfter(query.start())) {
+            return 0.0;
+        }
+        Map<Long, List<Booking>> bookingsByTable = bookings.stream()
+                .collect(Collectors.groupingBy(Booking::tableId));
+        Map<Long, GapInfo> gaps = new HashMap<>();
+        Duration buffer = Duration.ofMinutes(query.bufferMinutes());
+        for (TableCandidate table : tables) {
+            gaps.put(table.id(), computeGap(bookingsByTable.getOrDefault(table.id(), List.of()), query, buffer));
+        }
+        return scoreCombination(query, tables, gaps).score();
+    }
+
     public static Result recommend(Query query, Collection<TableCandidate> candidates, Collection<Booking> bookings) {
         Map<Long, List<Booking>> bookingsByTable = bookings.stream()
                 .collect(Collectors.groupingBy(Booking::tableId));
@@ -216,7 +237,8 @@ public final class TableRecommendationEngine {
         Arrays.sort(numbers);
         int n = combo.size();
 
-        double fit = ((double) q.guestCount() / total) * (1 - COMBINATION_PENALTY_PER_EXTRA_TABLE * (n - 1));
+        double fit = Math.min(1.0, (double) q.guestCount() / total)
+                * Math.max(0.0, 1 - COMBINATION_PENALTY_PER_EXTRA_TABLE * (n - 1));
         double gap = gapSum / n;
         Double area = areaScore(q.preferredAreaId(), combo);
         return new ScoredCombo(combo, total, fit, gap, area, combine(fit, gap, area), numbers);

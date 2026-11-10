@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="http://www.thymeleaf.org" lang="vi">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Hóa đơn thanh toán - Castorant</title>
+    <style>
+        @page {
+            size: A4 portrait;
+            margin: 12mm 15mm;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #F5F3FF;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #1E1B2E;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .main-card {
+            width: 100%;
+            max-width: 650px;
+            margin: 20px auto;
+            background-color: #FFFFFF;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #E9D5FF;
+        }
+        .header {
+            background-color: #6D28D9;
+            padding: 24px;
+            text-align: center;
+            color: #FFFFFF;
+        }
+        .header h1 {
+            margin: 6px 0 0;
+            font-size: 26px;
+            font-weight: bold;
+            color: #FFFFFF;
+        }
+        .header p {
+            margin: 4px 0 0;
+            font-size: 12px;
+            color: #EDE9FE;
+        }
+        .header .subtitle {
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            font-weight: bold;
+            color: #DDD6FE;
+        }
+        .content-body {
+            padding: 24px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            font-size: 11px;
+            font-weight: bold;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .badge-paid {
+            background-color: #e8f8f5;
+            color: #27ae60;
+            border: 1px solid #27ae60;
+        }
+        .badge-partial {
+            background-color: #fef9e7;
+            color: #f39c12;
+            border: 1px solid #f39c12;
+        }
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+        }
+        .info-table td {
+            padding: 6px 4px;
+            font-size: 13px;
+            vertical-align: top;
+        }
+        .info-label {
+            color: #64748B;
+            width: 30%;
+        }
+        .info-value {
+            color: #1E1B2E;
+            font-weight: bold;
+            width: 70%;
+        }
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 14px;
+            margin-bottom: 16px;
+        }
+        .items-table th {
+            background-color: #F5F3FF;
+            border: 1px solid #E9D5FF;
+            padding: 8px 6px;
+            font-size: 12px;
+            font-weight: bold;
+            color: #6D28D9;
+            text-align: left;
+        }
+        .items-table td {
+            border: 1px solid #E2E8F0;
+            padding: 8px 6px;
+            font-size: 12px;
+        }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+        }
+        .summary-table td {
+            padding: 5px 8px;
+            font-size: 13px;
+        }
+        .summary-label {
+            text-align: right;
+            width: 70%;
+            color: #475569;
+        }
+        .summary-value {
+            text-align: right;
+            width: 30%;
+            font-weight: bold;
+            color: #1E1B2E;
+        }
+        .summary-highlight {
+            font-size: 15px;
+            color: #6D28D9;
+            font-weight: bold;
+        }
+        .download-btn {
+            display: inline-block;
+            background-color: #6D28D9;
+            color: #FFFFFF !important;
+            text-decoration: none;
+            padding: 12px 28px;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 6px;
+        }
+        .footer {
+            text-align: center;
+            padding: 16px 24px;
+            border-top: 1px solid #F1F5F9;
+            background-color: #FAFAFC;
+            font-size: 12px;
+            color: #64748B;
+            border-radius: 0 0 12px 12px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="main-card">
+    <!-- Brand Header -->
+    <div class="header">
+        <div class="subtitle">CASTAWAY &amp; DINING EXPERIENCE</div>
+        <h1 th:text="${invoice.restaurantName != null ? invoice.restaurantName : 'Castorant'}">Castorant</h1>
+        <p th:if="${invoice.restaurantAddress != null and !#strings.isEmpty(invoice.restaurantAddress)}"
+           th:text="${'Địa chỉ: ' + invoice.restaurantAddress}">123 Đường 3/2, Quận 10, TP.HCM</p>
+        <p th:if="${invoice.restaurantPhone != null and !#strings.isEmpty(invoice.restaurantPhone)}"
+           th:text="${'Hotline: ' + invoice.restaurantPhone}">1900 6868</p>
+    </div>
+
+    <!-- Body content -->
+    <div class="content-body">
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px;">
+            <tr>
+                <td style="vertical-align: middle;">
+                    <h2 style="margin: 0; font-size: 18px; color: #1E1B2E; text-transform: uppercase;">Hóa đơn thanh toán</h2>
+                    <p style="margin: 4px 0 0; color: #64748B; font-size: 12px;"
+                       th:text="${'Số HĐ: ' + invoice.invoiceNo}">Số HĐ: INV-001</p>
+                </td>
+                <td style="text-align: right; vertical-align: middle;">
+                    <span th:if="${invoice.isFullyPaid}" class="badge badge-paid">ĐÃ THANH TOÁN</span>
+                    <span th:if="${!invoice.isFullyPaid}" class="badge badge-partial">THANH TOÁN MỘT PHẦN</span>
+                </td>
+            </tr>
+        </table>
+
+        <!-- Info Table -->
+        <table class="info-table" style="background-color: #FAF8FF; border: 1px solid #E9D5FF; border-radius: 8px;">
+            <tr>
+                <td class="info-label" style="padding-left: 14px;">Mã đơn hàng:</td>
+                <td class="info-value" th:text="${invoice.orderNo}">ORD-001</td>
+            </tr>
+            <tr>
+                <td class="info-label" style="padding-left: 14px;">Khách hàng:</td>
+                <td class="info-value" th:text="${invoice.customerName}">Quý khách</td>
+            </tr>
+            <tr th:if="${invoice.customerPhone != null and !#strings.isEmpty(invoice.customerPhone)}">
+                <td class="info-label" style="padding-left: 14px;">Số điện thoại:</td>
+                <td class="info-value" th:text="${invoice.customerPhone}">0987654321</td>
+            </tr>
+            <tr th:if="${invoice.customerEmail != null and !#strings.isEmpty(invoice.customerEmail)}">
+                <td class="info-label" style="padding-left: 14px;">Email:</td>
+                <td class="info-value" th:text="${invoice.customerEmail}">customer@example.com</td>
+            </tr>
+            <tr>
+                <td class="info-label" style="padding-left: 14px;">Thời gian thanh toán:</td>
+                <td class="info-value" th:text="${formattedPaymentDate}">21/10/2026 20:00:00</td>
+            </tr>
+        </table>
+
+        <!-- Order Items -->
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th class="text-center" style="width: 8%;">STT</th>
+                    <th style="width: 44%;">Món ăn / Dịch vụ</th>
+                    <th class="text-center" style="width: 12%;">SL</th>
+                    <th class="text-right" style="width: 18%;">Đơn giá (VND)</th>
+                    <th class="text-right" style="width: 18%;">Thành tiền (VND)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr th:each="item, stat : ${invoice.items}">
+                    <td class="text-center" th:text="${stat.count}">1</td>
+                    <td th:text="${item.itemName}">Món ăn</td>
+                    <td class="text-center" th:text="${item.quantity}">1</td>
+                    <td class="text-right" th:text="${#numbers.formatDecimal(item.unitPrice, 0, 'COMMA', 0, 'POINT')}">50,000</td>
+                    <td class="text-right" th:text="${#numbers.formatDecimal(item.subtotal, 0, 'COMMA', 0, 'POINT')}">50,000</td>
+                </tr>
+                <tr th:if="${invoice.items == null or #lists.isEmpty(invoice.items)}">
+                    <td colspan="5" class="text-center" style="color: #64748B; font-style: italic;">Không có món ăn trong đơn hàng</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Financial Summary -->
+        <table class="summary-table">
+            <tr>
+                <td class="summary-label">Tổng tiền món ăn:</td>
+                <td class="summary-value" th:text="${formattedItemsSubtotal + ' VND'}">100,000 VND</td>
+            </tr>
+            <tr th:if="${invoice.discountRate > 0}">
+                <td class="summary-label" th:text="${'Chiết khấu thành viên (' + invoice.discountRate + '%):'}">Chiết khấu (10%):</td>
+                <td class="summary-value" style="color: #27ae60;" th:text="${'-' + invoice.discountRate + '%'}">-10%</td>
+            </tr>
+            <tr>
+                <td class="summary-label" style="font-weight: bold;">Tổng tiền sau chiết khấu:</td>
+                <td class="summary-value" style="font-weight: bold;" th:text="${formattedOrderTotal + ' VND'}">90,000 VND</td>
+            </tr>
+            <tr>
+                <td class="summary-label" style="color: #6D28D9; font-weight: bold;">Số tiền thanh toán lần này:</td>
+                <td class="summary-value summary-highlight" th:text="${formattedPaymentAmount + ' VND'}">90,000 VND</td>
+            </tr>
+            <tr>
+                <td class="summary-label">Tổng tiền đã thanh toán:</td>
+                <td class="summary-value" style="color: #27ae60;" th:text="${formattedOrderPaid + ' VND'}">90,000 VND</td>
+            </tr>
+            <tr th:if="${!invoice.isFullyPaid}">
+                <td class="summary-label" style="color: #c0392b; font-weight: bold;">Số tiền còn lại cần thanh toán:</td>
+                <td class="summary-value" style="color: #c0392b; font-weight: bold;" th:text="${formattedOrderRemaining + ' VND'}">0 VND</td>
+            </tr>
+        </table>
+
+        <!-- Download Action Button (Only visible in Email, not printed in PDF) -->
+        <div th:if="${!isPdfMode and downloadUrl != null and !#strings.isEmpty(downloadUrl)}"
+             style="text-align: center; margin: 30px 0 10px;">
+            <a th:href="${downloadUrl}" class="download-btn">
+                Lưu lại hóa đơn (PDF)
+            </a>
+            <p style="margin: 10px 0 0; font-size: 12px; color: #64748B;">
+                File PDF hóa đơn cũng đã được đính kèm trực tiếp trong email này để bạn dễ dàng lưu trữ.
+            </p>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p style="margin: 0 0 4px; font-weight: bold; color: #1E1B2E;">Cảm ơn quý khách đã thưởng thức tại Castorant!</p>
+        <p style="margin: 0;">Nếu quý khách có bất kỳ câu hỏi nào về hóa đơn, vui lòng liên hệ hotline hoặc nhân viên tại nhà hàng.</p>
+    </div>
+</div>
+
+</body>
+</html>

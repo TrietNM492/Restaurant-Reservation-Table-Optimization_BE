@@ -25,9 +25,13 @@ import org.thymeleaf.spring6.SpringTemplateEngine;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import com.restaurant.ireservation.dto.response.InvoiceResponseDTO;
+import com.restaurant.ireservation.util.InvoicePdfGenerator;
+import org.springframework.core.io.ByteArrayResource;
 
 @Service
 public class MailService {
@@ -142,7 +146,6 @@ public class MailService {
             );
         }
 
-
         Context context = new Context();
         context.setVariable("brandName", fromName);
         context.setVariable("customerName", customerName);
@@ -150,12 +153,10 @@ public class MailService {
         context.setVariable("reservationTime", reservationTime);
         context.setVariable("partySize", partySize);
 
-
         String htmlContent = springTemplateEngine.process(
                 "email/reservation-notification",
                 context
         );
-
 
         MimeMessage message = javaMailSender.createMimeMessage();
 
@@ -189,7 +190,7 @@ public class MailService {
         context.setVariable("startTime", startTime);
         context.setVariable("reservationId", reservation.getReservationNo());
         String html = springTemplateEngine.process("email/reminder-notification", context);
-        MimeMessage message= javaMailSender.createMimeMessage();
+        MimeMessage message = javaMailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
         helper.setFrom(from);
         helper.setTo(to);
@@ -197,8 +198,82 @@ public class MailService {
         helper.setText(html, true);
         javaMailSender.send(message);
 
-
     }
 
+    @Async
+    public void sendInvoiceEmail(InvoiceResponseDTO invoice, String downloadUrl, String customRecipientEmail) {
+        if (invoice == null) {
+            LOGGER.warn("Cannot send invoice email: invoice data is null");
+            return;
+        }
+
+        String recipientEmail = (customRecipientEmail != null && !customRecipientEmail.isBlank())
+                ? customRecipientEmail
+                : invoice.getCustomerEmail();
+
+        if (recipientEmail == null || recipientEmail.isBlank()) {
+            LOGGER.warn("No recipient email found for invoice: {}. Skipping email delivery.", invoice.getInvoiceNo());
+            return;
+        }
+
+        try {
+            String htmlContent = InvoicePdfGenerator.buildHtml(invoice, downloadUrl, false);
+            byte[] pdfBytes = InvoicePdfGenerator.generatePdf(invoice);
+
+            MimeMessage message = javaMailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
+
+            if (from != null && !from.isBlank()) {
+                helper.setFrom(from, fromName != null ? fromName : "Castorant");
+            }
+            helper.setTo(recipientEmail.trim());
+            helper.setSubject("Castorant - Hóa đơn thanh toán #" + invoice.getInvoiceNo());
+            helper.setText(htmlContent, true);
+
+            if (pdfBytes != null && pdfBytes.length > 0) {
+                String filename = "Hoa-don-" + invoice.getInvoiceNo() + ".pdf";
+                helper.addAttachment(filename, new ByteArrayResource(pdfBytes));
+            }
+
+            javaMailSender.send(message);
+            LOGGER.info("Invoice email successfully sent to {} for invoice {}", recipientEmail, invoice.getInvoiceNo());
+        } catch (Exception e) {
+            LOGGER.error("Failed to send invoice email for invoice {}: {}", invoice.getInvoiceNo(), e.getMessage(), e);
+        }
+    }
+
+    public void sendInvoiceEmail(InvoiceResponseDTO invoice, String downloadUrl) {
+        sendInvoiceEmail(invoice, downloadUrl, null);
+    }
+
+    public void sendReservationAutoCancellation(
+            String to,
+            String customerName,
+            String reservationNo,
+            Instant startTime
+    ) throws Exception {
+        ZoneId restaurantZone = ZoneId.of("Asia/Ho_Chi_Minh");
+        String formattedTime = (startTime != null)
+                ? startTime.atZone(restaurantZone)
+                .format(DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy", Locale.forLanguageTag(Constants.DEFAULT_LANGUAGE)))
+                : "N/A";
+
+        Context context = new Context(Locale.forLanguageTag(Constants.DEFAULT_LANGUAGE));
+        context.setVariable("customerName", (customerName != null && !customerName.isBlank()) ? customerName : "Quý khách");
+        context.setVariable("reservationNo", reservationNo != null ? reservationNo : "");
+        context.setVariable("reservationTime", formattedTime);
+        context.setVariable("brandName", (fromName != null && !fromName.isBlank()) ? fromName : "Castorant");
+
+        String html = springTemplateEngine.process("email/cancellation-notification", context);
+
+        MimeMessage message = javaMailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
+        helper.setFrom(from, fromName);
+        helper.setTo(to);
+        helper.setSubject("Castorant - Thông báo hủy đặt bàn do quá giờ nhận bàn");
+        helper.setText(html, true);
+
+        javaMailSender.send(message);
+    }
 
 }

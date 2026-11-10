@@ -29,7 +29,17 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     boolean existsActiveOrderByTableId(@Param("tableId") Long tableId,
             @Param("closedStatuses") Collection<OrderStatus> closedStatuses);
 
+    @Query("SELECT o FROM Order o " +
+            "JOIN o.reservation r " +
+            "JOIN ReservationTable rt ON rt.reservation.id = r.id " +
+            "WHERE rt.table.id = :tableId " +
+            "AND o.orderStatus NOT IN :closedStatuses")
+    List<Order> findActiveOrdersByTableId(@Param("tableId") Long tableId,
+            @Param("closedStatuses") Collection<OrderStatus> closedStatuses);
+
     boolean existsByReservationIdAndOrderStatusNotIn(Long reservationId, Collection<OrderStatus> closedStatuses);
+
+    Optional<Order> findFirstByReservationIdAndOrderStatusNotInOrderByCreatedDateDesc(Long reservationId, Collection<OrderStatus> closedStatuses);
 
     @EntityGraph(attributePaths = { "reservation", "customerInformation", "customerInformation.user" })
     Optional<Order> findWithDetailsById(Long id);
@@ -42,4 +52,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             "ORDER BY o.createdDate DESC, o.id DESC")
     List<Order> findActiveOrdersByCustomerInfoId(@Param("customerInfoId") Long customerInfoId,
             @Param("closedStatuses") Collection<OrderStatus> closedStatuses);
+
+    List<Order> findByOrderStatusIn(Collection<OrderStatus> statuses);
+
+    List<Order> findByCreatedByAndOrderStatusNotInOrderByCreatedDateDesc(String createdBy, Collection<OrderStatus> closedStatuses);
 }
