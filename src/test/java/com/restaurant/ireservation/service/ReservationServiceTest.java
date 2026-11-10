@@ -5,6 +5,7 @@ import com.restaurant.ireservation.domain.entity.ReservationRoom;
 import com.restaurant.ireservation.domain.entity.ReservationTable;
 import com.restaurant.ireservation.domain.entity.RestaurantTable;
 import com.restaurant.ireservation.domain.entity.Room;
+import com.restaurant.ireservation.domain.entity.User;
 import com.restaurant.ireservation.domain.enumerations.PartySize;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.ReservationType;
@@ -12,6 +13,7 @@ import com.restaurant.ireservation.domain.enumerations.RoomStatus;
 import com.restaurant.ireservation.domain.enumerations.RoomType;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.RejectReservationRequestDTO;
 import com.restaurant.ireservation.dto.request.RoomReservationBookingRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
 import com.restaurant.ireservation.dto.request.VipRoomRecommendationRequestDTO;
@@ -20,6 +22,11 @@ import com.restaurant.ireservation.dto.response.VipRoomRecommendationResponseDTO
 import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
+import com.restaurant.ireservation.util.ResultPaginationDTO;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.util.Optional;
@@ -28,6 +35,7 @@ import com.restaurant.ireservation.repository.ReservationRoomRepository;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
 import com.restaurant.ireservation.repository.RestaurantTableRepository;
 import com.restaurant.ireservation.repository.RoomRepository;
+import com.restaurant.ireservation.repository.UserRepository;
 import com.restaurant.ireservation.security.AuthoritiesConstants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -74,6 +82,9 @@ class ReservationServiceTest {
 
     @Mock
     RoomRepository roomRepository;
+
+    @Mock
+    UserRepository userRepository;
 
     @Mock
     StringRedisTemplate stringRedisTemplate;
@@ -2720,5 +2731,382 @@ class ReservationServiceTest {
         assertNotNull(response);
         assertEquals(1, response.getRooms().size());
         assertEquals(RoomType.VIP_ROOM, response.getRooms().get(0).getRoomType());
+    }
+
+    // ==========================================
+    // Admin Confirm Reservation Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("CONFIRM-SVC-01: Successfully confirm a PENDING reservation as Admin")
+    void confirmReservation_success_fromPending() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        Long reservationId = 201L;
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        Reservation reservation = Reservation.builder()
+                .reservationNo("RES-CONF-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .note("Quiet table please")
+                .build();
+        reservation.setId(reservationId);
+        reservation.setCreatedBy("customer_user");
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(reservation));
+        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
+        when(reservationRoomRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        User mockUser = User.builder()
+                .username("customer_user")
+                .fullname("John Customer")
+                .phone("0987654321")
+                .email("john@example.com")
+                .build();
+        when(userRepository.findUserByUsername("customer_user")).thenReturn(Optional.of(mockUser));
+
+        ReservationResponseDTO response = reservationService.confirmReservation(reservationId, "admin_user");
+
+        assertNotNull(response);
+        assertEquals(ReservationStatus.CONFIRMED, response.getReservationStatus());
+        assertEquals("admin_user", reservation.getLastModifiedBy());
+        assertEquals("John Customer", response.getCustomerName());
+        assertEquals("0987654321", response.getCustomerPhone());
+        assertEquals("john@example.com", response.getCustomerEmail());
+    }
+
+    @Test
+    @DisplayName("CONFIRM-SVC-02: Fail to confirm if already CONFIRMED")
+    void confirmReservation_fail_alreadyConfirmed() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        Long reservationId = 202L;
+
+        Reservation reservation = Reservation.builder()
+                .reservationNo("RES-CONF-002")
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .build();
+        reservation.setId(reservationId);
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(reservation));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.confirmReservation(reservationId, "admin_user"));
+        assertEquals("Reservation is already confirmed", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("CONFIRM-SVC-03: Fail to confirm if status is CANCELLED")
+    void confirmReservation_fail_invalidStatusCancelled() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        Long reservationId = 203L;
+
+        Reservation reservation = Reservation.builder()
+                .reservationNo("RES-CONF-003")
+                .reservationStatus(ReservationStatus.CANCELLED)
+                .build();
+        reservation.setId(reservationId);
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(reservation));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.confirmReservation(reservationId, "admin_user"));
+        assertEquals("Only reservations with PENDING status can be confirmed", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("CONFIRM-SVC-04: Fail to confirm if reservation end time has expired")
+    void confirmReservation_fail_expired() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        Long reservationId = 204L;
+        Instant now = Instant.now();
+        Instant startTime = now.minus(Duration.ofHours(3));
+        Instant endTime = now.minus(Duration.ofHours(1));
+
+        Reservation reservation = Reservation.builder()
+                .reservationNo("RES-CONF-004")
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        reservation.setId(reservationId);
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(reservation));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.confirmReservation(reservationId, "admin_user"));
+        assertEquals("Cannot confirm an expired reservation", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("CONFIRM-SVC-05: Fail to confirm if assigned table is locked")
+    void confirmReservation_fail_tableLocked() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        Long reservationId = 205L;
+        Instant startTime = Instant.now().plus(Duration.ofHours(2));
+        Instant endTime = startTime.plus(Duration.ofHours(2));
+
+        Reservation reservation = Reservation.builder()
+                .reservationNo("RES-CONF-005")
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(startTime)
+                .endTime(endTime)
+                .build();
+        reservation.setId(reservationId);
+
+        RestaurantTable lockedTable = RestaurantTable.builder()
+                .tableNumber(105)
+                .statusCode(TableStatus.LOCKED)
+                .build();
+
+        ReservationTable resTable = ReservationTable.builder()
+                .reservation(reservation)
+                .table(lockedTable)
+                .build();
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(reservation));
+        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(List.of(resTable));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.confirmReservation(reservationId, "admin_user"));
+        assertEquals("Table 105 is currently locked", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("CONFIRM-SVC-06: Customer cannot confirm reservation (AccessDeniedException)")
+    void confirmReservation_fail_notAdmin() {
+        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        Long reservationId = 206L;
+
+        assertThrows(AccessDeniedException.class,
+                () -> reservationService.confirmReservation(reservationId, "customer_user"));
+    }
+
+    // ==========================================
+    // Admin Reject Reservation Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("REJECT-SVC-01: Successfully reject a PENDING reservation with reason")
+    void rejectReservation_success_fromPending_withReason() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        Long reservationId = 301L;
+
+        Reservation reservation = Reservation.builder()
+                .reservationNo("RES-REJ-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .note("Existing customer note")
+                .build();
+        reservation.setId(reservationId);
+        reservation.setCreatedBy("customer_user");
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(reservation));
+        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
+        when(reservationRoomRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        RejectReservationRequestDTO dto = RejectReservationRequestDTO.builder()
+                .reason("Fully booked for private event")
+                .build();
+
+        ReservationResponseDTO response = reservationService.rejectReservation(reservationId, dto, "admin_user");
+
+        assertNotNull(response);
+        assertEquals(ReservationStatus.CANCELLED, response.getReservationStatus());
+        assertEquals("admin_user", reservation.getLastModifiedBy());
+        assertTrue(reservation.getNote().contains("Existing customer note"));
+        assertTrue(reservation.getNote().contains("[Admin Rejection: Fully booked for private event]"));
+    }
+
+    @Test
+    @DisplayName("REJECT-SVC-02: Successfully reject without reason preserves original note")
+    void rejectReservation_success_withoutReason() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        Long reservationId = 302L;
+
+        Reservation reservation = Reservation.builder()
+                .reservationNo("RES-REJ-002")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .note("Original note")
+                .build();
+        reservation.setId(reservationId);
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(reservation));
+        when(reservationTableRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
+        when(reservationRoomRepository.findByReservationId(reservationId)).thenReturn(Collections.emptyList());
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReservationResponseDTO response = reservationService.rejectReservation(reservationId, null, "admin_user");
+
+        assertNotNull(response);
+        assertEquals(ReservationStatus.CANCELLED, response.getReservationStatus());
+        assertEquals("Original note", reservation.getNote());
+    }
+
+    @Test
+    @DisplayName("REJECT-SVC-03: Rejecting a CONFIRMED reservation fails with validation error")
+    void rejectReservation_fail_confirmedStatus() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        Long reservationId = 303L;
+
+        Reservation reservation = Reservation.builder()
+                .reservationNo("RES-REJ-003")
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .build();
+        reservation.setId(reservationId);
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(reservation));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.rejectReservation(reservationId, null, "admin_user"));
+        assertTrue(ex.getMessage().contains("Only reservations with PENDING status can be rejected"));
+    }
+
+    @Test
+    @DisplayName("REJECT-SVC-04: Rejecting an already CANCELLED reservation fails")
+    void rejectReservation_fail_alreadyCancelled() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        Long reservationId = 304L;
+
+        Reservation reservation = Reservation.builder()
+                .reservationNo("RES-REJ-004")
+                .reservationStatus(ReservationStatus.CANCELLED)
+                .build();
+        reservation.setId(reservationId);
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(reservation));
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.rejectReservation(reservationId, null, "admin_user"));
+        assertEquals("Reservation is already cancelled", ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("REJECT-SVC-05: Rejecting with reason exceeding combined 500 chars fails without truncating note")
+    void rejectReservation_fail_noteTooLong() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+        Long reservationId = 305L;
+
+        String longCustomerNote = "A".repeat(480);
+        Reservation reservation = Reservation.builder()
+                .reservationNo("RES-REJ-005")
+                .reservationStatus(ReservationStatus.PENDING)
+                .note(longCustomerNote)
+                .build();
+        reservation.setId(reservationId);
+
+        when(reservationRepository.findById(reservationId)).thenReturn(Optional.of(reservation));
+
+        RejectReservationRequestDTO dto = RejectReservationRequestDTO.builder()
+                .reason("This reason pushes the total over 500 characters")
+                .build();
+
+        RequestInvalidException ex = assertThrows(RequestInvalidException.class,
+                () -> reservationService.rejectReservation(reservationId, dto, "admin_user"));
+
+        assertTrue(ex.getMessage().contains("exceeds the 500-character database limit"));
+        assertEquals(longCustomerNote, reservation.getNote(), "Customer note must NOT be truncated");
+    }
+
+    @Test
+    @DisplayName("REJECT-SVC-06: Customer cannot reject reservation (AccessDeniedException)")
+    void rejectReservation_fail_notAdmin() {
+        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+        Long reservationId = 306L;
+
+        assertThrows(AccessDeniedException.class,
+                () -> reservationService.rejectReservation(reservationId, null, "customer_user"));
+    }
+
+    // ==========================================
+    // Admin Get Reservations Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("LIST-SVC-01: Admin gets paginated reservations with batch customer resolution")
+    void getReservations_success_withFiltersAndPagination() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+
+        Reservation r1 = Reservation.builder()
+                .reservationNo("RES-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.PENDING)
+                .startTime(Instant.now().plus(Duration.ofHours(1)))
+                .endTime(Instant.now().plus(Duration.ofHours(3)))
+                .build();
+        r1.setId(10L);
+        r1.setCreatedBy("user1");
+
+        Page<Reservation> page = new PageImpl<>(List.of(r1), PageRequest.of(0, 10), 1);
+
+        when(reservationRepository.searchReservations(eq("RES-001"), eq(ReservationStatus.PENDING), any(), any(), any(), any()))
+                .thenReturn(page);
+        when(reservationTableRepository.findByReservationIdIn(List.of(10L)))
+                .thenReturn(Collections.emptyList());
+        when(reservationRoomRepository.findByReservationIdIn(List.of(10L)))
+                .thenReturn(Collections.emptyList());
+
+        User user1 = User.builder()
+                .username("user1")
+                .fullname("User One")
+                .phone("0123456789")
+                .email("user1@example.com")
+                .build();
+        when(userRepository.findByUsernameIn(anyCollection()))
+                .thenReturn(List.of(user1));
+
+        ResultPaginationDTO result = reservationService.getReservations(
+                "RES-001", ReservationStatus.PENDING, null, null, null, PageRequest.of(0, 10)
+        );
+
+        assertNotNull(result);
+        assertEquals(1, result.getMeta().getPage());
+        assertEquals(10, result.getMeta().getPageSize());
+        assertEquals(1, result.getMeta().getTotal());
+
+        @SuppressWarnings("unchecked")
+        List<ReservationResponseDTO> dtoList = (List<ReservationResponseDTO>) result.getResult();
+        assertEquals(1, dtoList.size());
+        assertEquals("User One", dtoList.get(0).getCustomerName());
+        assertEquals("0123456789", dtoList.get(0).getCustomerPhone());
+    }
+
+    @Test
+    @DisplayName("LIST-SVC-02: Customer cannot view all reservations (AccessDeniedException)")
+    void getReservations_fail_notAdmin() {
+        mockSecurityContext(AuthoritiesConstants.CUSTOMER);
+
+        assertThrows(AccessDeniedException.class,
+                () -> reservationService.getReservations(null, null, null, null, null, PageRequest.of(0, 10)));
+    }
+
+    @Test
+    @DisplayName("LIST-SVC-03: Negative page index throws RequestInvalidException")
+    void getReservations_fail_negativePage() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+
+        Pageable negativePageable = mock(Pageable.class);
+        when(negativePageable.getPageNumber()).thenReturn(-1);
+
+        assertThrows(RequestInvalidException.class,
+                () -> reservationService.getReservations(null, null, null, null, null, negativePageable));
+    }
+
+    @Test
+    @DisplayName("LIST-SVC-04: Page size > 100 throws RequestInvalidException")
+    void getReservations_fail_invalidPageSize() {
+        mockSecurityContext(AuthoritiesConstants.ADMIN);
+
+        assertThrows(RequestInvalidException.class,
+                () -> reservationService.getReservations(null, null, null, null, null, PageRequest.of(0, 150)));
     }
 }

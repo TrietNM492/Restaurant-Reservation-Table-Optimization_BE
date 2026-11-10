@@ -284,4 +284,17 @@ class ReservationAutoCancellationServiceTest {
 
         verify(worker, never()).cancelAndRecordNotification(any(), any(), any());
     }
+
+    @Test
+    @DisplayName("TC-10: Confirmed reservations are strictly immune to auto-cancellation query")
+    void processAutoCancellations_confirmedReservations_neverQueriedOrCancelled() {
+        when(reservationRepository.findExpiredPendingReservationIds(eq(ReservationStatus.PENDING), eq(now), any(PageRequest.class)))
+                .thenReturn(Collections.emptyList());
+
+        service.processAutoCancellations(now);
+
+        verify(reservationRepository).findExpiredPendingReservationIds(eq(ReservationStatus.PENDING), eq(now), any(PageRequest.class));
+        verify(reservationRepository, never()).findExpiredPendingReservationIds(eq(ReservationStatus.CONFIRMED), any(), any());
+        verify(worker, never()).cancelAndRecordNotification(any(), any(), any());
+    }
 }

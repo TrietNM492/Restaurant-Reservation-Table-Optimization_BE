@@ -25,6 +25,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import com.restaurant.ireservation.util.ResultPaginationDTO;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -151,5 +153,145 @@ class ReservationSecurityTest {
                 .andExpect(status().isUnauthorized());
 
         verify(reservationService, never()).completeReservation(any(), any());
+    }
+
+    // ==========================================
+    // Admin List Security Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("SEC-07: ROLE_CUSTOMER receives HTTP 403 Forbidden when calling getReservations")
+    void getReservations_asCustomer_returns403Forbidden() throws Exception {
+        mockMvc.perform(get("/api/v1/reservations")
+                .with(jwt().jwt(builder -> builder.subject("customer_user"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_CUSTOMER"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+
+        verify(reservationService, never()).getReservations(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("SEC-08: ROLE_ADMIN can reach getReservations endpoint and returns HTTP 200 OK")
+    void getReservations_asAdmin_returns200Ok() throws Exception {
+        ResultPaginationDTO paginationDTO = new ResultPaginationDTO();
+        when(reservationService.getReservations(any(), any(), any(), any(), any(), any()))
+                .thenReturn(paginationDTO);
+
+        mockMvc.perform(get("/api/v1/reservations")
+                .with(jwt().jwt(builder -> builder.subject("admin_user"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk());
+
+        verify(reservationService).getReservations(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("SEC-09: Unauthenticated request to getReservations returns HTTP 401 Unauthorized")
+    void getReservations_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/v1/reservations"))
+                .andExpect(status().isUnauthorized());
+
+        verify(reservationService, never()).getReservations(any(), any(), any(), any(), any(), any());
+    }
+
+    // ==========================================
+    // Confirm Security Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("SEC-10: ROLE_CUSTOMER receives HTTP 403 Forbidden when calling confirmReservation")
+    void confirmReservation_asCustomer_returns403Forbidden() throws Exception {
+        mockMvc.perform(post("/api/v1/reservations/1/confirm")
+                .with(jwt().jwt(builder -> builder.subject("customer_user"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_CUSTOMER"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+
+        verify(reservationService, never()).confirmReservation(any(), any());
+    }
+
+    @Test
+    @DisplayName("SEC-11: ROLE_ADMIN can reach confirmReservation endpoint and returns HTTP 200 OK")
+    void confirmReservation_asAdmin_returns200Ok() throws Exception {
+        ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
+                .id(1L)
+                .reservationNo("RES-05102026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .createdBy("customer_user")
+                .build();
+
+        when(reservationService.confirmReservation(eq(1L), eq("admin_user")))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(post("/api/v1/reservations/1/confirm")
+                .with(jwt().jwt(builder -> builder.subject("admin_user"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(1))
+                .andExpect(jsonPath("$.data.reservationStatus").value("CONFIRMED"));
+
+        verify(reservationService).confirmReservation(eq(1L), eq("admin_user"));
+    }
+
+    @Test
+    @DisplayName("SEC-12: Unauthenticated request to confirmReservation returns HTTP 401 Unauthorized")
+    void confirmReservation_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(post("/api/v1/reservations/1/confirm"))
+                .andExpect(status().isUnauthorized());
+
+        verify(reservationService, never()).confirmReservation(any(), any());
+    }
+
+    // ==========================================
+    // Reject Security Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("SEC-13: ROLE_CUSTOMER receives HTTP 403 Forbidden when calling rejectReservation")
+    void rejectReservation_asCustomer_returns403Forbidden() throws Exception {
+        mockMvc.perform(post("/api/v1/reservations/1/reject")
+                .with(jwt().jwt(builder -> builder.subject("customer_user"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_CUSTOMER"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+
+        verify(reservationService, never()).rejectReservation(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("SEC-14: ROLE_ADMIN can reach rejectReservation endpoint and returns HTTP 200 OK")
+    void rejectReservation_asAdmin_returns200Ok() throws Exception {
+        ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
+                .id(1L)
+                .reservationNo("RES-05102026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.CANCELLED)
+                .createdBy("customer_user")
+                .build();
+
+        when(reservationService.rejectReservation(eq(1L), any(), eq("admin_user")))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(post("/api/v1/reservations/1/reject")
+                .with(jwt().jwt(builder -> builder.subject("admin_user"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(1))
+                .andExpect(jsonPath("$.data.reservationStatus").value("CANCELLED"));
+
+        verify(reservationService).rejectReservation(eq(1L), any(), eq("admin_user"));
+    }
+
+    @Test
+    @DisplayName("SEC-15: Unauthenticated request to rejectReservation returns HTTP 401 Unauthorized")
+    void rejectReservation_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(post("/api/v1/reservations/1/reject"))
+                .andExpect(status().isUnauthorized());
+
+        verify(reservationService, never()).rejectReservation(any(), any(), any());
     }
 }

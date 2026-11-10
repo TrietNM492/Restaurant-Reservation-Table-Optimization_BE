@@ -7,6 +7,7 @@ import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.ReservationType;
 import com.restaurant.ireservation.domain.enumerations.RoomType;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.RejectReservationRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
 import com.restaurant.ireservation.dto.response.ReservationResponseDTO;
 import com.restaurant.ireservation.error.GlobalException;
@@ -14,6 +15,8 @@ import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.service.ReservationService;
+import com.restaurant.ireservation.util.ResultPaginationDTO;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -85,7 +88,7 @@ class ReservationControllerTest {
 
         mockMvc = MockMvcBuilders.standaloneSetup(reservationController)
                 .setControllerAdvice(new GlobalException())
-                .setCustomArgumentResolvers(jwtResolver)
+                .setCustomArgumentResolvers(jwtResolver, new PageableHandlerMethodArgumentResolver())
                 .build();
 
         objectMapper = new ObjectMapper();
@@ -789,5 +792,146 @@ class ReservationControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    // ==========================================
+    // Admin Confirm Endpoint Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("CONFIRM-CTRL-01: Valid confirm request returns HTTP 200 OK")
+    void confirmReservation_validRequest_returns200() throws Exception {
+        ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
+                .id(1L)
+                .reservationNo("RES-10112026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.CONFIRMED)
+                .createdBy("test_customer")
+                .build();
+
+        when(reservationService.confirmReservation(eq(1L), eq("test_customer")))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(post("/api/v1/reservations/1/confirm"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.reservationStatus").value("CONFIRMED"));
+    }
+
+    @Test
+    @DisplayName("CONFIRM-CTRL-02: Confirm with invalid status returns HTTP 400 Bad Request")
+    void confirmReservation_invalidStatus_returns400() throws Exception {
+        when(reservationService.confirmReservation(eq(1L), eq("test_customer")))
+                .thenThrow(new RequestInvalidException("Only reservations with PENDING status can be confirmed"));
+
+        mockMvc.perform(post("/api/v1/reservations/1/confirm"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Only reservations with PENDING status can be confirmed"));
+    }
+
+    @Test
+    @DisplayName("CONFIRM-CTRL-03: Confirm non-existent reservation returns HTTP 404 Not Found")
+    void confirmReservation_notFound_returns404() throws Exception {
+        when(reservationService.confirmReservation(eq(999L), eq("test_customer")))
+                .thenThrow(new ResourceNotFoundException("Reservation not found with id: 999"));
+
+        mockMvc.perform(post("/api/v1/reservations/999/confirm"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Reservation not found with id: 999"));
+    }
+
+    // ==========================================
+    // Admin Reject Endpoint Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("REJECT-CTRL-01: Valid reject request returns HTTP 200 OK")
+    void rejectReservation_validRequest_returns200() throws Exception {
+        RejectReservationRequestDTO request = RejectReservationRequestDTO.builder()
+                .reason("Table maintenance")
+                .build();
+
+        ReservationResponseDTO mockResponse = ReservationResponseDTO.builder()
+                .id(1L)
+                .reservationNo("RES-10112026-001")
+                .partySize(PartySize.SMALL)
+                .reservationType(ReservationType.TABLE)
+                .reservationStatus(ReservationStatus.CANCELLED)
+                .createdBy("test_customer")
+                .build();
+
+        when(reservationService.rejectReservation(eq(1L), any(RejectReservationRequestDTO.class), eq("test_customer")))
+                .thenReturn(mockResponse);
+
+        mockMvc.perform(post("/api/v1/reservations/1/reject")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.reservationStatus").value("CANCELLED"));
+    }
+
+    @Test
+    @DisplayName("REJECT-CTRL-02: Reject with invalid status returns HTTP 400 Bad Request")
+    void rejectReservation_invalidStatus_returns400() throws Exception {
+        when(reservationService.rejectReservation(eq(1L), any(), eq("test_customer")))
+                .thenThrow(new RequestInvalidException("Only reservations with PENDING status can be rejected"));
+
+        mockMvc.perform(post("/api/v1/reservations/1/reject"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Only reservations with PENDING status can be rejected"));
+    }
+
+    @Test
+    @DisplayName("REJECT-CTRL-03: Reject non-existent reservation returns HTTP 404 Not Found")
+    void rejectReservation_notFound_returns404() throws Exception {
+        when(reservationService.rejectReservation(eq(999L), any(), eq("test_customer")))
+                .thenThrow(new ResourceNotFoundException("Reservation not found with id: 999"));
+
+        mockMvc.perform(post("/api/v1/reservations/999/reject"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Reservation not found with id: 999"));
+    }
+
+    @Test
+    @DisplayName("REJECT-CTRL-04: Reject with reason exceeding 200 chars returns HTTP 400 Validation Failed")
+    void rejectReservation_excessiveReason_returns400() throws Exception {
+        RejectReservationRequestDTO request = RejectReservationRequestDTO.builder()
+                .reason("A".repeat(201))
+                .build();
+
+        mockMvc.perform(post("/api/v1/reservations/1/reject")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Validation Failed"));
+    }
+
+    // ==========================================
+    // Admin List Endpoint Tests
+    // ==========================================
+
+    @Test
+    @DisplayName("LIST-CTRL-01: Valid getReservations request returns HTTP 200 OK")
+    void getReservations_validRequest_returns200() throws Exception {
+        ResultPaginationDTO paginationDTO = new ResultPaginationDTO();
+        ResultPaginationDTO.Meta meta = new ResultPaginationDTO.Meta();
+        meta.setPage(1);
+        meta.setPageSize(10);
+        meta.setTotal(0);
+        paginationDTO.setMeta(meta);
+        paginationDTO.setResult(Collections.emptyList());
+
+        when(reservationService.getReservations(any(), any(), any(), any(), any(), any()))
+                .thenReturn(paginationDTO);
+
+        mockMvc.perform(get("/api/v1/reservations"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.page").value(1));
     }
 }

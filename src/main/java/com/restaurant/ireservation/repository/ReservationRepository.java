@@ -2,6 +2,7 @@ package com.restaurant.ireservation.repository;
 
 import com.restaurant.ireservation.domain.entity.Reservation;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
+import com.restaurant.ireservation.domain.enumerations.ReservationType;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -24,6 +25,25 @@ import java.util.Optional;
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
 
     List<Reservation> findByCreatedBy(String createdBy);
+
+    @Query("""
+        SELECT r FROM Reservation r
+        WHERE (:status IS NULL OR r.reservationStatus = :status)
+          AND (:type IS NULL OR r.reservationType = :type)
+          AND (:keyword IS NULL OR :keyword = ''
+               OR LOWER(r.reservationNo) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(r.createdBy) LIKE LOWER(CONCAT('%', :keyword, '%')))
+          AND (:fromDate IS NULL OR r.startTime >= :fromDate)
+          AND (:toDate IS NULL OR r.startTime <= :toDate)
+    """)
+    Page<Reservation> searchReservations(
+            @Param("keyword") String keyword,
+            @Param("status") ReservationStatus status,
+            @Param("type") ReservationType type,
+            @Param("fromDate") Instant fromDate,
+            @Param("toDate") Instant toDate,
+            Pageable pageable
+    );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM Reservation r WHERE r.id = :id")

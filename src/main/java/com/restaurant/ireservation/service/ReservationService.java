@@ -5,12 +5,14 @@ import com.restaurant.ireservation.domain.entity.ReservationRoom;
 import com.restaurant.ireservation.domain.entity.ReservationTable;
 import com.restaurant.ireservation.domain.entity.RestaurantTable;
 import com.restaurant.ireservation.domain.entity.Room;
+import com.restaurant.ireservation.domain.entity.User;
 import com.restaurant.ireservation.domain.enumerations.ReservationStatus;
 import com.restaurant.ireservation.domain.enumerations.ReservationType;
 import com.restaurant.ireservation.domain.enumerations.RoomStatus;
 import com.restaurant.ireservation.domain.enumerations.RoomType;
 import com.restaurant.ireservation.domain.enumerations.TableStatus;
 import com.restaurant.ireservation.dto.request.CreateReservationRequestDTO;
+import com.restaurant.ireservation.dto.request.RejectReservationRequestDTO;
 import com.restaurant.ireservation.dto.request.RoomReservationBookingRequestDTO;
 import com.restaurant.ireservation.dto.request.UpdateReservationRequestDTO;
 import com.restaurant.ireservation.dto.request.VipRoomRecommendationRequestDTO;
@@ -20,6 +22,9 @@ import com.restaurant.ireservation.error.RequestInvalidException;
 import com.restaurant.ireservation.error.ReservationConflictException;
 import com.restaurant.ireservation.error.ResourceNotFoundException;
 import com.restaurant.ireservation.security.AuthoritiesConstants;
+import com.restaurant.ireservation.util.ResultPaginationDTO;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -28,6 +33,7 @@ import com.restaurant.ireservation.repository.ReservationRoomRepository;
 import com.restaurant.ireservation.repository.ReservationTableRepository;
 import com.restaurant.ireservation.repository.RestaurantTableRepository;
 import com.restaurant.ireservation.repository.RoomRepository;
+import com.restaurant.ireservation.repository.UserRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -46,7 +52,9 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -61,6 +69,7 @@ public class ReservationService {
     final RestaurantTableRepository restaurantTableRepository;
     final ReservationRoomRepository reservationRoomRepository;
     final RoomRepository roomRepository;
+    final UserRepository userRepository;
     final StringRedisTemplate stringRedisTemplate;
     Clock clock = Clock.systemUTC();
 
@@ -607,6 +616,224 @@ public class ReservationService {
                     return mapToResponseDTO(r, tables, rooms);
                 })
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ResultPaginationDTO getReservations(
+            String q,
+            ReservationStatus status,
+            ReservationType type,
+            Instant from,
+            Instant to,
+            Pageable pageable
+    ) {
+        if (pageable.getPageNumber() < 0) {
+            throw new RequestInvalidException("Page index must not be less than 0");
+        }
+        if (pageable.getPageSize() < 1 || pageable.getPageSize() > 100) {
+            throw new RequestInvalidException("Page size must be between 1 and 100");
+        }
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        boolean isAdmin = authentication != null && authentication.getAuthorities() != null
+                && authentication.getAuthorities().stream().anyMatch(a ->
+                        AuthoritiesConstants.ADMIN.equals(a.getAuthority())
+                );
+
+        if (!isAdmin) {
+            throw new AccessDeniedException("You are not allowed to view all reservations");
+        }
+
+        String keyword = (q != null && !q.isBlank()) ? q.trim() : null;
+        Page<Reservation> reservationPage = reservationRepository.searchReservations(
+                keyword, status, type, from, to, pageable
+        );
+
+        List<Reservation> reservations = reservationPage.getContent();
+        List<Long> resIds = reservations.stream().map(Reservation::getId).toList();
+
+        Map<Long, List<RestaurantTable>> tableMap = resIds.isEmpty() ? Collections.emptyMap() :
+                reservationTableRepository.findByReservationIdIn(resIds).stream()
+                        .filter(rt -> rt.getReservation() != null && rt.getTable() != null)
+                        .collect(Collectors.groupingBy(
+                                rt -> rt.getReservation().getId(),
+                                Collectors.mapping(ReservationTable::getTable, Collectors.toList())
+                        ));
+
+        Map<Long, List<Room>> roomMap = resIds.isEmpty() ? Collections.emptyMap() :
+                reservationRoomRepository.findByReservationIdIn(resIds).stream()
+                        .filter(rr -> rr.getReservation() != null && rr.getRoom() != null)
+                        .collect(Collectors.groupingBy(
+                                rr -> rr.getReservation().getId(),
+                                Collectors.mapping(ReservationRoom::getRoom, Collectors.toList())
+                        ));
+
+        Set<String> usernames = reservations.stream()
+                .map(Reservation::getCreatedBy)
+                .filter(u -> u != null && !u.isBlank())
+                .collect(Collectors.toSet());
+
+        Map<String, User> userMap = usernames.isEmpty() ? Collections.emptyMap() :
+                userRepository.findByUsernameIn(usernames).stream()
+                        .filter(u -> u.getUsername() != null)
+                        .collect(Collectors.toMap(User::getUsername, Function.identity(), (u1, u2) -> u1));
+
+        List<ReservationResponseDTO> responseList = reservations.stream()
+                .map(r -> {
+                    List<RestaurantTable> tables = tableMap.getOrDefault(r.getId(), Collections.emptyList());
+                    List<Room> rooms = roomMap.getOrDefault(r.getId(), Collections.emptyList());
+                    User user = (r.getCreatedBy() != null) ? userMap.get(r.getCreatedBy()) : null;
+                    return mapToResponseDTO(r, tables, rooms, user);
+                })
+                .toList();
+
+        ResultPaginationDTO paginationDTO = new ResultPaginationDTO();
+        paginationDTO.setResult(responseList);
+
+        ResultPaginationDTO.Meta meta = new ResultPaginationDTO.Meta();
+        meta.setPage(pageable.getPageNumber() + 1);
+        meta.setPageSize(pageable.getPageSize());
+        meta.setPages(reservationPage.getTotalPages());
+        meta.setTotal(reservationPage.getTotalElements());
+        meta.setHasNext(reservationPage.hasNext());
+        meta.setHasPrevious(reservationPage.hasPrevious());
+        paginationDTO.setMeta(meta);
+
+        return paginationDTO;
+    }
+
+    @Transactional
+    public ReservationResponseDTO confirmReservation(Long id, String username) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        boolean isAdmin = authentication != null && authentication.getAuthorities() != null
+                && authentication.getAuthorities().stream().anyMatch(a ->
+                        AuthoritiesConstants.ADMIN.equals(a.getAuthority())
+                );
+
+        if (!isAdmin) {
+            throw new AccessDeniedException("You are not allowed to confirm this reservation");
+        }
+
+        Reservation reservation = reservationRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
+
+        if (reservation.getReservationStatus() == ReservationStatus.CONFIRMED) {
+            throw new RequestInvalidException("Reservation is already confirmed");
+        }
+
+        if (reservation.getReservationStatus() != ReservationStatus.PENDING) {
+            throw new RequestInvalidException("Only reservations with PENDING status can be confirmed");
+        }
+
+        Instant now = (clock != null) ? clock.instant() : Instant.now();
+        if (reservation.getEndTime() != null && now.isAfter(reservation.getEndTime())) {
+            throw new RequestInvalidException("Cannot confirm an expired reservation");
+        }
+
+        List<ReservationTable> resTables = reservationTableRepository.findByReservationId(id);
+        List<RestaurantTable> tables = resTables.stream()
+                .map(ReservationTable::getTable)
+                .toList();
+
+        for (RestaurantTable table : tables) {
+            if (table.getStatusCode() == TableStatus.LOCKED) {
+                throw new RequestInvalidException("Table " + table.getTableNumber() + " is currently locked");
+            }
+        }
+
+        List<ReservationRoom> resRooms = reservationRoomRepository.findByReservationId(id);
+        List<Room> rooms = resRooms.stream()
+                .map(ReservationRoom::getRoom)
+                .toList();
+
+        for (Room room : rooms) {
+            if (room.getRoomStatus() == RoomStatus.MAINTENANCE) {
+                throw new RequestInvalidException("Room " + room.getRoomName() + " is currently under maintenance");
+            }
+        }
+
+        reservation.setReservationStatus(ReservationStatus.CONFIRMED);
+        reservation.setLastModifiedBy(username);
+        Reservation savedReservation = reservationRepository.save(reservation);
+
+        User user = (savedReservation.getCreatedBy() != null)
+                ? userRepository.findUserByUsername(savedReservation.getCreatedBy()).orElse(null)
+                : null;
+
+        return mapToResponseDTO(savedReservation, tables, rooms, user);
+    }
+
+    @Transactional
+    public ReservationResponseDTO rejectReservation(Long id, RejectReservationRequestDTO dto, String username) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        boolean isAdmin = authentication != null && authentication.getAuthorities() != null
+                && authentication.getAuthorities().stream().anyMatch(a ->
+                        AuthoritiesConstants.ADMIN.equals(a.getAuthority())
+                );
+
+        if (!isAdmin) {
+            throw new AccessDeniedException("You are not allowed to reject this reservation");
+        }
+
+        Reservation reservation = reservationRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
+
+        if (reservation.getReservationStatus() == ReservationStatus.CANCELLED) {
+            throw new RequestInvalidException("Reservation is already cancelled");
+        }
+
+        if (reservation.getReservationStatus() == ReservationStatus.CONFIRMED) {
+            throw new RequestInvalidException("Only reservations with PENDING status can be rejected. Cancelling confirmed reservations is not supported in this operation.");
+        }
+
+        if (reservation.getReservationStatus() != ReservationStatus.PENDING) {
+            throw new RequestInvalidException("Only reservations with PENDING status can be rejected");
+        }
+
+        String reason = (dto != null && dto.getReason() != null) ? dto.getReason().trim() : null;
+        if (reason != null && !reason.isEmpty()) {
+            String existingNote = (reservation.getNote() != null) ? reservation.getNote().trim() : "";
+            String prefix = "[Admin Rejection: " + reason + "]";
+            String combinedNote = existingNote.isEmpty() ? prefix : existingNote + " | " + prefix;
+            if (combinedNote.length() > 500) {
+                throw new RequestInvalidException("Rejection reason cannot be appended because combined note length ("
+                        + combinedNote.length() + " chars) exceeds the 500-character database limit. Existing note length: "
+                        + existingNote.length() + " chars. Please shorten the reason.");
+            }
+            reservation.setNote(combinedNote);
+        }
+
+        reservation.setReservationStatus(ReservationStatus.CANCELLED);
+        reservation.setLastModifiedBy(username);
+        Reservation savedReservation = reservationRepository.save(reservation);
+
+        List<ReservationTable> resTables = reservationTableRepository.findByReservationId(id);
+        List<RestaurantTable> tables = resTables.stream()
+                .map(ReservationTable::getTable)
+                .toList();
+
+        List<ReservationRoom> resRooms = reservationRoomRepository.findByReservationId(id);
+        List<Room> rooms = resRooms.stream()
+                .map(ReservationRoom::getRoom)
+                .toList();
+
+        User user = (savedReservation.getCreatedBy() != null)
+                ? userRepository.findUserByUsername(savedReservation.getCreatedBy()).orElse(null)
+                : null;
+
+        return mapToResponseDTO(savedReservation, tables, rooms, user);
+    }
+
+    private ReservationResponseDTO mapToResponseDTO(Reservation reservation, List<RestaurantTable> tables, List<Room> rooms, User user) {
+        ReservationResponseDTO dto = mapToResponseDTO(reservation, tables, rooms);
+        if (user != null) {
+            dto.setCustomerName((user.getFullname() != null && !user.getFullname().isBlank()) ? user.getFullname() : user.getUsername());
+            dto.setCustomerPhone(user.getPhone());
+            dto.setCustomerEmail(user.getEmail());
+        } else if (reservation.getCreatedBy() != null) {
+            dto.setCustomerName(reservation.getCreatedBy());
+        }
+        return dto;
     }
 
     private ReservationResponseDTO mapToResponseDTO(Reservation reservation, List<RestaurantTable> tables, List<Room> rooms) {
