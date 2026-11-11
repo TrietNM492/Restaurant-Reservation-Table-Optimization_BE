@@ -29,6 +29,9 @@ public class ReservationResponseDTO {
     List<RoomSummaryDTO> rooms;
     String createdBy;
     Instant createdDate;
+    String customerName;
+    String customerPhone;
+    String customerEmail;
 
     @Getter
     @Setter

@@ -170,4 +170,27 @@ class ReservationAutoCancellationWorkerTest {
         assertEquals(NotificationDeliveryStatus.PENDING, captured.getDeliveryStatus());
         assertEquals(0, captured.getRetryCount());
     }
+
+    @Test
+    @DisplayName("Worker TC-04: Confirmed reservation is rejected by conditional update (expected status PENDING)")
+    void cancelAndRecordNotification_confirmedReservation_rejectedByAtomicUpdate() {
+        Long reservationId = 400L;
+
+        // When reservation is CONFIRMED, DB query where reservationStatus = PENDING matches 0 rows
+        when(reservationRepository.updateStatusIfCurrentStatusAndStartTimeBefore(
+                eq(reservationId),
+                eq(ReservationStatus.PENDING),
+                eq(ReservationStatus.CANCELLED),
+                eq(cutoffTime),
+                eq(now),
+                eq("SYSTEM")
+        )).thenReturn(0);
+
+        CancellationResult result = worker.cancelAndRecordNotification(reservationId, cutoffTime, now);
+
+        assertInstanceOf(CancellationResult.ConcurrentlyModified.class, result);
+        assertEquals(reservationId, ((CancellationResult.ConcurrentlyModified) result).reservationId());
+        verify(reservationRepository, never()).findById(any());
+        verify(notificationRepository, never()).save(any());
+    }
 }
