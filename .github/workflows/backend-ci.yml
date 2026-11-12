@@ -1,0 +1,43 @@
+
+name: Backend CI
+
+# Run workflow when code is pushed or a PR is created
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build-and-test:
+    name: Build and Test Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Get source code
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # Step 2: Install Java 21
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      # Step 3: Build and run tests
+      - name: Build and Test
+        run: mvn -B clean verify
+
+      # Step 4: Upload JAR artifact
+      - name: Upload JAR
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: restaurant-backend
+          path: target/*.jar
